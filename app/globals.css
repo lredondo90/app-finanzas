@@ -33,7 +33,12 @@
   }
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
 body {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
   background: rgb(var(--page));
   color: rgb(var(--ink));
 }
@@ -45,7 +50,7 @@ body {
   @apply text-xs font-medium uppercase tracking-wide text-muted;
 }
 .input {
-  @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-accent;
+  @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-base text-ink outline-none focus:border-accent sm:text-sm;
 }
 .btn {
   @apply inline-flex items-center justify-center gap-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50;

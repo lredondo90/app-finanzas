@@ -26,7 +26,7 @@ export default function CellInput({ value, onSave, placeholder, highlight, class
       onChange={(e) => setV(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-      className={`tnum w-full min-w-[4.5rem] rounded-md border bg-transparent px-1.5 py-1 text-right text-sm outline-none focus:border-accent focus:bg-surface
+      className={`tnum w-full min-w-[4.5rem] rounded-md border bg-transparent px-1.5 py-1 text-right text-base outline-none focus:border-accent focus:bg-surface sm:text-sm
         ${highlight ? "border-warn/70 bg-warn/15" : "border-transparent hover:border-line"} ${pending ? "opacity-50" : ""} ${className}`}
     />
   );

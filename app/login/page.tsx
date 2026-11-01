@@ -10,7 +10,7 @@ export default function LoginPage() {
   const state = (mode === "in" ? inState : upState) as { error?: string; info?: string } | null;
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-4">
+    <main className="flex min-h-screen items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))]">
       <div className="card w-full max-w-sm">
         <div className="mb-6 flex items-center gap-3">
           <img src="/icon.svg" alt="" className="h-10 w-10" />
