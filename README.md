@@ -37,7 +37,7 @@ Los cálculos replican las fórmulas del Excel (por ejemplo, el gasto variable c
 ### 3. Primer uso
 1. Abre la app, **regístrate** con tu email y contraseña.
 2. Ve a **Ajustes → Importar desde Excel** y sube `Presupuesto_2026.xlsx`. Se cargan todos tus datos.
-3. En el móvil: abre la web y usa «Añadir a pantalla de inicio» para tenerla como app.
+3. **iPhone**: abre la URL de Vercel en **Safari** → botón **Compartir** → **«Añadir a pantalla de inicio»**. Se instala con su icono y se abre a pantalla completa, sin barra del navegador. La propia app muestra este aviso la primera vez que la abres en el iPhone.
 
 ## Desarrollo local
 
