@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getUser } from "@/lib/data";
 import { parseWorkbook } from "@/lib/importExcel";
@@ -47,6 +48,19 @@ export async function signUp(_: unknown, form: FormData) {
   if (error) return { error: error.message };
   if (!data.session) return { info: "Te hemos enviado un email para confirmar la cuenta. Después vuelve aquí e inicia sesión." };
   redirect("/ajustes");
+}
+
+export async function signInWithGoogle() {
+  const supabase = await createClient();
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${proto}://${host}/auth/callback` },
+  });
+  if (error || !data.url) redirect("/login?error=google");
+  redirect(data.url);
 }
 
 export async function signOut() {
