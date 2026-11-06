@@ -68,7 +68,9 @@ export interface MonthSummary {
   prevision: number;
   variableReal: number;
   desviacion: number;
-  closed: boolean;
+  /** pasado = usa el gasto real · actual = va día a día · futuro = usa la provisión */
+  periodo: "pasado" | "actual" | "futuro";
+  ritmo: { dia: number; dias: number; previstoHastaHoy: number; proyeccion: number; quedaPorDia: number } | null;
   variableConsiderado: number;
   totalGastos: number;
   resultado: number;
@@ -96,8 +98,23 @@ export function monthSummary(d: YearData, month: number): MonthSummary {
 
   const exps = d.expenses.filter((e) => e.date.startsWith(`${d.year}-`) && monthOf(e.date) === month);
   const variableReal = exps.reduce((s, e) => s + n(e.amount), 0);
-  const closed = d.months.find((m) => m.month === month && m.year === d.year)?.closed ?? false;
-  const variableConsiderado = closed ? variableReal : prevision;
+  const hoy = todayMadrid();
+  const periodo: MonthSummary["periodo"] =
+    d.year < hoy.year || (d.year === hoy.year && month < hoy.month) ? "pasado"
+    : d.year === hoy.year && month === hoy.month ? "actual" : "futuro";
+  let ritmo: MonthSummary["ritmo"] = null;
+  if (periodo === "actual") {
+    const dias = new Date(d.year, month, 0).getDate();
+    const dia = hoy.day;
+    ritmo = {
+      dia, dias,
+      previstoHastaHoy: (prevision * dia) / dias,
+      proyeccion: (variableReal / dia) * dias,
+      quedaPorDia: dias - dia + 1 > 0 ? Math.max(0, prevision - variableReal) / (dias - dia + 1) : 0,
+    };
+  }
+  // Mes pasado: lo real. Mes en curso: lo real si ya supera lo previsto, si no lo previsto. Futuro: lo previsto.
+  const variableConsiderado = periodo === "pasado" ? variableReal : periodo === "actual" ? Math.max(variableReal, prevision) : prevision;
   const totalGastos = fijos + variableConsiderado;
   const resultado = ingresos - totalGastos;
 
@@ -127,7 +144,8 @@ export function monthSummary(d: YearData, month: number): MonthSummary {
     prevision,
     variableReal,
     desviacion: prevision - variableReal,
-    closed,
+    periodo,
+    ritmo,
     variableConsiderado,
     totalGastos,
     resultado,
@@ -140,6 +158,13 @@ export function monthSummary(d: YearData, month: number): MonthSummary {
     porCategoria,
     lineas,
   };
+}
+
+/** Fecha de hoy en España */
+export function todayMadrid() {
+  const [y, m, dd] = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date()).split("-").map(Number);
+  return { year: y, month: m, day: dd };
 }
 
 export function isDone(d: YearData, line: BudgetLine, month: number) {

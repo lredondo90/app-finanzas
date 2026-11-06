@@ -128,6 +128,8 @@ export interface YearData {
   banks: BankAccount[];
   history: NetWorthPoint[];
   oneOffIncomes: OneOffIncome[];
+  /** Última carga de gastos por origen (banco o a mano) */
+  loads: { source: string; loadedAt: string; lastMovement: string | null }[];
 }
 
 export interface OneOffIncome {

@@ -9,6 +9,27 @@ import { loadYear } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
+const fmtWhen = (iso: string) =>
+  new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+const fmtDay = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+
+function LastLoads({ loads }: { loads: { source: string; loadedAt: string; lastMovement: string | null }[] }) {
+  if (!loads.length) return null;
+  const newest = loads.reduce((a, b) => (a.loadedAt > b.loadedAt ? a : b));
+  const days = Math.floor((Date.now() - new Date(newest.loadedAt).getTime()) / 86400000);
+  return (
+    <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-3 py-2 text-xs ${days >= 4 ? "border-warn/60 bg-warn/10" : "border-line bg-surface"}`}>
+      <span className="font-medium text-ink">Última carga de gastos:</span>
+      {loads.map((l) => (
+        <span key={l.source} className="text-ink2">
+          <b className="text-ink">{l.source}</b> {fmtWhen(l.loadedAt)}{l.lastMovement ? ` (movimientos hasta el ${fmtDay(l.lastMovement)})` : ""}
+        </span>
+      ))}
+      {days >= 4 && <span className="text-ink">· Hace {days} días: <Link href="/importar" className="text-accent underline">sube el extracto</Link></span>}
+    </div>
+  );
+}
+
 export default async function Dashboard({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const sp = await searchParams;
   const d = await loadYear();
@@ -43,6 +64,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   return (
     <div className="space-y-4">
       <MonthPicker month={month} year={d.year} />
+      <LastLoads loads={d.loads} />
 
       {/* KPIs */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -60,30 +82,44 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       </section>
 
       <section className="grid gap-3 lg:grid-cols-3">
-        {/* Gasto variable */}
+        {/* Gasto variable: cómo vas día a día */}
         <div className="card lg:col-span-1">
           <div className="flex items-center justify-between">
-            <div className="label">Gasto variable</div>
-            <span className={`rounded-full px-2 py-0.5 text-[11px] ${s.closed ? "bg-good/15 text-good" : "bg-line/70 text-ink2"}`}>
-              {s.closed ? "✓ Mes cerrado" : "Mes abierto"}
+            <div className="label">{s.periodo === "actual" ? `Cómo vas · día ${s.ritmo!.dia} de ${s.ritmo!.dias}` : "Gasto variable"}</div>
+            <span className="rounded-full bg-line/70 px-2 py-0.5 text-[11px] text-ink2">
+              {s.periodo === "pasado" ? "Mes terminado" : s.periodo === "actual" ? "En curso" : "Previsto"}
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-semibold">{fmt(s.variableReal)}</span>
-            <span className="text-sm text-muted">de {fmt0(s.prevision)} previstos</span>
+            <span className="text-sm text-muted">de {fmt0(s.prevision)}</span>
           </div>
-          <div className="mt-3 h-2.5 rounded-full bg-line/60" role="meter" aria-valuenow={Math.round(usado * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Gasto variable sobre lo previsto">
-            <div className={`h-2.5 rounded-full ${usado > 1 ? "bg-bad" : "bg-accent"}`} style={{ width: `${Math.min(100, usado * 100)}%` }} />
+          <div className="relative mt-3 h-2.5 rounded-full bg-line/60" role="meter" aria-valuenow={Math.round(usado * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Gasto variable sobre lo previsto">
+            <div className={`h-2.5 rounded-full ${usado > 1 || (s.ritmo && s.variableReal > s.ritmo.previstoHastaHoy) ? "bg-bad" : "bg-accent"}`} style={{ width: `${Math.min(100, usado * 100)}%` }} />
+            {s.ritmo && (
+              <div className="absolute -top-1 h-4.5 w-0.5 rounded bg-ink" style={{ left: `${(s.ritmo.dia / s.ritmo.dias) * 100}%`, height: "18px" }} title="Lo que tocaría llevar hoy" />
+            )}
           </div>
-          <div className="mt-2 flex justify-between text-xs">
-            <span className="text-ink2">{Math.round(usado * 100)} % usado</span>
-            <span className={s.desviacion >= 0 ? "text-good" : "text-bad"}>
-              {s.desviacion >= 0 ? `▼ Quedan ${fmt(s.desviacion)}` : `▲ Te pasas ${fmt(-s.desviacion)}`}
-            </span>
-          </div>
-          <p className="mt-3 text-xs text-muted">
-            {s.closed ? "El resultado usa el gasto real." : "Mientras el mes esté abierto, el resultado usa la provisión. Ciérralo en Presupuesto."}
-          </p>
+          {s.ritmo ? (
+            <div className="mt-3 space-y-1.5 text-sm">
+              {s.variableReal <= s.ritmo.previstoHastaHoy ? (
+                <p className="text-good">▼ Vas {fmt0(s.ritmo.previstoHastaHoy - s.variableReal)} por debajo de lo que tocaría a día de hoy ({fmt0(s.ritmo.previstoHastaHoy)}).</p>
+              ) : (
+                <p className="text-bad">▲ Vas {fmt0(s.variableReal - s.ritmo.previstoHastaHoy)} por encima de lo que tocaría a día de hoy ({fmt0(s.ritmo.previstoHastaHoy)}).</p>
+              )}
+              <p className="text-ink2">A este ritmo acabarás el mes en <b className={s.ritmo.proyeccion > s.prevision ? "text-bad" : "text-ink"}>{fmt0(s.ritmo.proyeccion)}</b>.</p>
+              <p className="text-ink2">{s.desviacion > 0 ? <>Te quedan <b className="text-ink">{fmt0(s.desviacion)}</b>: unos <b className="text-ink">{fmt0(s.ritmo.quedaPorDia)}/día</b> hasta fin de mes.</> : <span className="text-bad">Ya has gastado {fmt0(-s.desviacion)} más de lo previsto.</span>}</p>
+            </div>
+          ) : (
+            <div className="mt-2 flex justify-between text-xs">
+              <span className="text-ink2">{Math.round(usado * 100)} % de lo previsto</span>
+              {s.periodo === "pasado" && (
+                <span className={s.desviacion >= 0 ? "text-good" : "text-bad"}>
+                  {s.desviacion >= 0 ? `▼ Ahorraste ${fmt(s.desviacion)}` : `▲ Te pasaste ${fmt(-s.desviacion)}`}
+                </span>
+              )}
+            </div>
+          )}
           <div className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-3 text-sm">
             <div><div className="label">Fondo anuales</div><div className={`tnum mt-0.5 font-medium ${s.fondoAnuales < 0 ? "text-bad" : ""}`}>{fmt0(s.fondoAnuales)}</div></div>
             <div><div className="label">Planes ahorro</div><div className="tnum mt-0.5 font-medium">{fmt0(s.planes)}</div></div>

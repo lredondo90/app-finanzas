@@ -1,6 +1,6 @@
 import Link from "next/link";
 import CellInput from "@/components/CellInput";
-import { addBudgetLine, deleteBudgetLine, fillPlannedYear, setBudgetCell, toggleMonthClosed } from "@/app/actions";
+import { addBudgetLine, deleteBudgetLine, fillPlannedYear, setBudgetCell } from "@/app/actions";
 import { MONTHS_SHORT, fmt0, isAdjusted, lineValue, monthSummary, plannedValue } from "@/lib/finance";
 import { loadYear } from "@/lib/data";
 import type { BudgetLine, Section } from "@/lib/types";
@@ -138,15 +138,11 @@ export default async function PresupuestoPage({ searchParams }: { searchParams: 
                   <td className="tnum px-2 text-right">{fmt0(yearTotal((i) => sums[i].desviacion))}</td>
                 </tr>
                 <tr>
-                  <td className="sticky left-0 bg-surface">¿Mes cerrado?</td>
+                  <td className="sticky left-0 bg-surface text-ink2">Mes</td>
                   {sums.map((s) => (
-                    <td key={s.month} className="px-1 text-right">
-                      <form action={async () => { "use server"; await toggleMonthClosed(d.year, s.month, !s.closed); }}>
-                        <button className={`w-full rounded-md px-2 py-1 text-xs ${s.closed ? "bg-good/15 text-good" : "bg-line/60 text-ink2"}`}
-                          title={s.closed ? "Cerrado: usa el gasto real" : "Abierto: usa la provisión"}>
-                          {s.closed ? "Sí" : "No"}
-                        </button>
-                      </form>
+                    <td key={s.month} className={`px-2 text-right text-xs ${s.periodo === "actual" ? "font-semibold text-accent" : "text-muted"}`}
+                      title={s.periodo === "pasado" ? "Usa el gasto real" : s.periodo === "actual" ? "Usa lo previsto, o lo real si ya lo supera" : "Usa la provisión"}>
+                      {s.periodo === "pasado" ? "real" : s.periodo === "actual" ? "en curso" : "previsto"}
                     </td>
                   ))}
                   <td></td>
