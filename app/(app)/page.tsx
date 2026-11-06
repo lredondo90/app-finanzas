@@ -5,7 +5,8 @@ import Stat from "@/components/Stat";
 import YearChart from "@/components/YearChart";
 import ExpenseForm from "@/components/ExpenseForm";
 import { MONTHS, MONTHS_SHORT, fmt, fmt0, monthOf, monthSummary } from "@/lib/finance";
-import { loadYear } from "@/lib/data";
+import { getUser, loadYear } from "@/lib/data";
+import SyncOnOpen from "@/components/SyncOnOpen";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,12 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     );
   }
 
+  const { supabase } = await getUser();
+  const [{ count: pendingCount = 0 }, { count: connCount = 0 }] = await Promise.all([
+    supabase.from("bank_pending").select("*", { count: "exact", head: true }),
+    supabase.from("bank_connections").select("*", { count: "exact", head: true }),
+  ]);
+  const hasConnections = (connCount ?? 0) > 0;
   const s = monthSummary(d, month);
   const year = Array.from({ length: 12 }, (_, i) => monthSummary(d, i + 1));
   const chart = year.map((m, i) => ({ mes: MONTHS_SHORT[i], month: i + 1, ingresos: m.ingresos, gastos: m.totalGastos, resultado: m.resultado }));
@@ -65,6 +72,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     <div className="space-y-4">
       <MonthPicker month={month} year={d.year} />
       <LastLoads loads={d.loads} />
+      {hasConnections && <SyncOnOpen />}
+      {(pendingCount ?? 0) > 0 && (
+        <Link href="/importar" className="flex items-center gap-3 rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-sm">
+          <span className="font-semibold text-accent">{pendingCount}</span>
+          <span className="flex-1">movimientos nuevos del banco por revisar</span>
+          <span className="text-accent">Revisar →</span>
+        </Link>
+      )}
 
       {/* KPIs */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">

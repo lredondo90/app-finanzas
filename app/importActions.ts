@@ -137,6 +137,10 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
       }
     }
 
+    // Lo revisado deja de estar pendiente
+    const keys = rows.map((r) => r.key);
+    for (let i = 0; i < keys.length; i += 200) await supabase.from("bank_pending").delete().in("import_key", keys.slice(i, i + 200));
+
     revalidatePath("/", "layout");
     const parts = [
       gastos && `${gastos} gastos variables`,

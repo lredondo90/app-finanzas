@@ -249,3 +249,36 @@ create policy "own rows" on public.bank_movements for all to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 create policy "own rows" on public.import_rules for all to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+-- ---------------------------------------------------------
+-- v4 · Conexión directa con el banco (Enable Banking / PSD2)
+-- ---------------------------------------------------------
+create table if not exists public.bank_connections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  aspsp_name text not null,
+  aspsp_country text not null default 'ES',
+  session_id text not null,
+  accounts jsonb not null default '[]'::jsonb,
+  valid_until timestamptz,
+  last_sync_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  unique (user_id, session_id)
+);
+create index if not exists bank_connections_user_idx on public.bank_connections (user_id);
+
+-- Movimientos descargados del banco pendientes de revisar
+create table if not exists public.bank_pending (
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  import_key text not null,
+  row jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, import_key)
+);
+
+alter table public.bank_connections enable row level security;
+alter table public.bank_pending enable row level security;
+create policy "own rows" on public.bank_connections for all to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy "own rows" on public.bank_pending for all to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));

@@ -13,9 +13,11 @@ type Row = SuggestedRow & { remember: boolean };
 /** Valor del desplegable «qué es»: acción + concepto */
 const encode = (r: Pick<Row, "action" | "line_id">) => (r.action === "fijo" || r.action === "ingreso" ? `${r.action}:${r.line_id}` : r.action);
 
-export default function BankImport({ categories, lines }: { categories: Category[]; lines: BudgetLine[] }) {
+export default function BankImport({ categories, lines, initialRows, pendingMode }: {
+  categories: Category[]; lines: BudgetLine[]; initialRows?: SuggestedRow[]; pendingMode?: boolean;
+}) {
   const [parsed, parseAction, parsing] = useActionState<ParseResult | null, FormData>(parseBankFile, null);
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const [rows, setRows] = useState<Row[] | null>(initialRows?.length ? initialRows.map((r) => ({ ...r, remember: true })) : null);
   const [lastParsed, setLastParsed] = useState<ParseResult | null>(null);
   const [useReal, setUseReal] = useState(true);
   const [saving, start] = useTransition();
@@ -46,9 +48,10 @@ export default function BankImport({ categories, lines }: { categories: Category
   }, [rows]);
 
   const save = () => {
-    const payload: ConfirmRow[] = rows!.filter((r) => r.include).map((r) => ({
+    // En «por revisar», lo desmarcado se descarta (se guarda como «no contar» para que no vuelva a salir)
+    const payload: ConfirmRow[] = rows!.filter((r) => r.include || pendingMode).map((r) => ({
       key: r.key, pattern: r.pattern, bank: r.bank, date: r.date, description: r.description, detail: r.detail, type: r.type,
-      amount: r.amount, action: r.action, category_id: r.category_id, line_id: r.line_id, remember: r.remember,
+      amount: r.amount, action: r.include ? r.action : "ignorar", category_id: r.category_id, line_id: r.line_id, remember: r.include && r.remember,
     }));
     start(async () => {
       const res = await confirmBankImport(payload, useReal);
@@ -59,7 +62,7 @@ export default function BankImport({ categories, lines }: { categories: Category
 
   return (
     <div className="space-y-4">
-      <form action={parseAction} className="card space-y-3">
+      {!pendingMode && <form action={parseAction} className="card space-y-3">
         <div className="label">1 · Sube el extracto</div>
         <p className="text-sm text-ink2">
           BBVA: Excel de «Últimos movimientos». Trade Republic: el PDF del extracto. Otros bancos: Excel o CSV con columnas Fecha, Concepto e Importe.
@@ -69,7 +72,7 @@ export default function BankImport({ categories, lines }: { categories: Category
           className="block w-full text-sm text-ink2 file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-2 file:text-sm file:text-white" />
         <button className="btn" disabled={parsing}>{parsing ? "Leyendo…" : "Leer extracto"}</button>
         {parsed?.error && <p className="text-sm text-bad">{parsed.error}</p>}
-      </form>
+      </form>}
 
       {result?.ok && (
         <div className="card border-good/40 bg-good/10">
@@ -93,7 +96,7 @@ export default function BankImport({ categories, lines }: { categories: Category
         <div className="card">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div className="label">2 · Revisa · {parsed?.bank} · {rows.length} movimientos</div>
+              <div className="label">{pendingMode ? `Por revisar · ${rows.length} movimientos nuevos del banco` : `2 · Revisa · ${parsed?.bank} · ${rows.length} movimientos`}</div>
               <p className="mt-1 text-xs text-muted">Cambia lo que no esté bien. Lo marcado con «recordar» lo aprenderé para la próxima vez.</p>
             </div>
             <div className="flex rounded-lg border border-line p-0.5 text-xs">
@@ -164,7 +167,7 @@ export default function BankImport({ categories, lines }: { categories: Category
               </label>
             </div>
             <button type="button" className="btn" disabled={saving || totals.n === 0} onClick={save}>
-              {saving ? "Guardando…" : `Guardar ${totals.n} movimientos`}
+              {saving ? "Guardando…" : pendingMode ? `Guardar ${totals.n} y descartar ${rows.length - totals.n}` : `Guardar ${totals.n} movimientos`}
             </button>
           </div>
         </div>

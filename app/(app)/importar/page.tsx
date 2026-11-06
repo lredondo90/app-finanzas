@@ -1,4 +1,6 @@
+import BankConnections from "@/components/BankConnections";
 import BankImport from "@/components/BankImport";
+import type { SuggestedRow } from "@/lib/bankSuggest";
 import { deleteImportRule } from "@/app/importActions";
 import { getUser } from "@/lib/data";
 
@@ -8,13 +10,18 @@ const ACTION_LABEL: Record<string, string> = {
   variable: "Gasto variable", fijo: "Gasto fijo", ingreso: "Ingreso fijo", puntual: "Ingreso puntual", inversion: "Inversión", ignorar: "No contar",
 };
 
-export default async function ImportarPage() {
+export default async function ImportarPage({ searchParams }: { searchParams: Promise<{ error?: string; conectado?: string; sync?: string }> }) {
+  const sp = await searchParams;
   const { supabase } = await getUser();
-  const [categories, lines, rules] = await Promise.all([
+  const [categories, lines, rules, conns, pending] = await Promise.all([
     supabase.from("categories").select("*").order("sort_order"),
     supabase.from("budget_lines").select("*").order("sort_order"),
     supabase.from("import_rules").select("*").order("updated_at", { ascending: false }),
+    supabase.from("bank_connections").select("*").order("created_at"),
+    supabase.from("bank_pending").select("row").order("created_at"),
   ]);
+  const pendingRows = (pending.data ?? []).map((p) => p.row as SuggestedRow).sort((a, b) => b.date.localeCompare(a.date));
+  const [saved, pend] = (sp.sync ?? "").split("|").map(Number);
   const cats = categories.data ?? [];
   const ls = lines.data ?? [];
   const target = (r: { action: string; category_id: string | null; line_id: string | null }) =>
@@ -30,7 +37,24 @@ export default async function ImportarPage() {
         </p>
       </div>
 
-      <BankImport categories={cats} lines={ls} />
+      {sp.error && (
+        <p className="card border-bad/40 bg-bad/10 text-sm text-bad">
+          {sp.error === "config" ? "Falta configurar Enable Banking en Vercel." : sp.error === "banco" ? "Escribe el nombre del banco." : sp.error}
+        </p>
+      )}
+      {sp.conectado && <p className="card border-good/40 bg-good/10 text-sm text-good">✓ Banco conectado. Pulsa «Sincronizar ahora» para traer los movimientos.</p>}
+      {sp.sync && !sp.error && (
+        <p className="card border-good/40 bg-good/10 text-sm text-good">✓ Sincronizado: {saved || 0} guardados automáticamente, {pend || 0} nuevos por revisar.</p>
+      )}
+
+      <BankConnections connections={conns.data ?? []} />
+
+      {pendingRows.length > 0 && <BankImport key={pendingRows.length} pendingMode initialRows={pendingRows} categories={cats} lines={ls} />}
+
+      <details className="card" open={!(conns.data ?? []).length}>
+        <summary className="cursor-pointer text-sm font-medium">Subir un extracto a mano (Excel, CSV o PDF)</summary>
+        <div className="mt-3"><BankImport categories={cats} lines={ls} /></div>
+      </details>
 
       {(rules.data?.length ?? 0) > 0 && (
         <details className="card">

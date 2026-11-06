@@ -57,13 +57,14 @@ const ANNUAL_HINT = /seguro|mutua|mapfre|allianz|axa|linea directa|\bibi\b|impue
 const SUPPLY_HINT = /iberdrola|endesa|naturgy|sunflower|holaluz|totalenergies|octopus/; // → línea LUZ
 
 export function suggest(
-  movements: Movement[],
+  movements: (Movement & { externalId?: string | null })[],
   ctx: {
     categories: Category[];
     lines: BudgetLine[];
     rules: ImportRule[];
     existingKeys: Set<string>;
     expenses: Expense[]; // para aprender de lo que ya tienes apuntado y detectar duplicados
+    existingMovs?: { bank: string; date: string; amount: number }[]; // movimientos ya importados por otra vía (p. ej. el Excel)
   },
 ): SuggestedRow[] {
   const catByHint = (hint: string) => ctx.categories.find((c) => norm(c.name).includes(hint))?.id ?? null;
@@ -87,18 +88,25 @@ export function suggest(
     const baseKey = `${m.bank}|${m.date}|${m.amount.toFixed(2)}|${pattern}`;
     const n = (seenInFile.get(baseKey) ?? 0) + 1;
     seenInFile.set(baseKey, n);
-    const key = `${baseKey}|${n}`;
+    // Si el banco da un identificador propio (conexión directa), es la clave más fiable
+    const key = m.externalId ? `${m.bank}|id|${m.externalId}` : `${baseKey}|${n}`;
     const text = norm(`${m.description} ${m.detail ?? ""} ${m.type ?? ""}`);
     const own = norm(`${m.description} ${m.detail ?? ""}`); // sin el tipo de operación (evita «tarjeta», «mensual»…)
     const tokens = (name: string) => norm(name).split(/[^a-z]+/).filter((w) => w.length >= 4 && !STOP.has(w));
     const matchLine = (ls: BudgetLine[]) => ls.find((l) => tokens(l.name).some((w) => new RegExp(`\\b${w}\\b`).test(own)));
 
+    const { externalId: _ext, ...mov } = m;
     const row = (action: ImportAction, reason: string, extra: Partial<SuggestedRow> = {}): SuggestedRow => ({
-      ...m, key, pattern, action, reason, include: true, learned: false,
+      ...mov, key, pattern, action, reason, include: true, learned: false,
       category_id: null, line_id: null, ...extra,
     });
 
     if (ctx.existingKeys.has(key)) return row("ignorar", "Ya importado antes", { include: false });
+    const sameIdx = ctx.existingMovs?.findIndex((e) => norm(e.bank) === norm(m.bank) && e.date === m.date && Math.abs(Number(e.amount) - m.amount) < 0.005) ?? -1;
+    if (sameIdx >= 0) {
+      ctx.existingMovs!.splice(sameIdx, 1); // cada movimiento previo solo «tapa» uno nuevo
+      return row("ignorar", "Ya importado desde un extracto", { include: false });
+    }
 
     const rule = ctx.rules.find((r) => r.pattern === pattern);
     if (rule) return row(rule.action, "Aprendido de otras veces", { category_id: rule.category_id, line_id: rule.line_id, learned: true });
