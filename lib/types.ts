@@ -21,6 +21,8 @@ export interface BudgetValue {
   planned: number;
   adjusted: number | null;
   note: string | null;
+  done?: boolean;
+  done_date?: string | null;
 }
 
 export interface MonthRow {
@@ -125,4 +127,13 @@ export interface YearData {
   prices: AssetPrice[];
   banks: BankAccount[];
   history: NetWorthPoint[];
+  oneOffIncomes: OneOffIncome[];
+}
+
+export interface OneOffIncome {
+  id: string;
+  date: string;
+  concept: string;
+  amount: number;
+  notes: string | null;
 }

@@ -20,7 +20,7 @@ export async function loadYear(yearParam?: number): Promise<YearData> {
   const from = `${year}-01-01`;
   const to = `${year + 1}-01-01`;
 
-  const [lines, values, months, categories, paymentMethods, expenses, annuals, plans, extras, investments, prices, banks, history] =
+  const [lines, values, months, categories, paymentMethods, expenses, annuals, plans, extras, investments, prices, banks, history, oneOffIncomes] =
     await Promise.all([
       supabase.from("budget_lines").select("*").order("sort_order"),
       supabase.from("budget_values").select("*").eq("year", year),
@@ -35,6 +35,7 @@ export async function loadYear(yearParam?: number): Promise<YearData> {
       supabase.from("asset_prices").select("*"),
       supabase.from("bank_accounts").select("*").order("sort_order"),
       supabase.from("net_worth_history").select("*").order("date"),
+      supabase.from("one_off_incomes").select("*").gte("date", from).lt("date", to).order("date"),
     ]);
 
   return {
@@ -53,5 +54,6 @@ export async function loadYear(yearParam?: number): Promise<YearData> {
     prices: prices.data ?? [],
     banks: banks.data ?? [],
     history: history.data ?? [],
+    oneOffIncomes: oneOffIncomes.data ?? [],
   };
 }

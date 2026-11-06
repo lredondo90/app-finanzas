@@ -79,13 +79,18 @@ export interface MonthSummary {
   resultadoTrasInversion: number;
   fondoAnuales: number;
   porCategoria: { id: string | null; name: string; total: number }[];
-  lineas: { line: BudgetLine; value: number; adjusted: boolean }[];
+  lineas: { line: BudgetLine; value: number; adjusted: boolean; done: boolean }[];
+  ingresosPuntuales: number;
+  /** Estado de cobros/pagos del mes: recibidos (ingresos) y pagados (gastos fijos) */
+  estado: Record<"ingreso" | "fijo", { hechos: number; total: number; pendiente: number }>;
 }
 
 export function monthSummary(d: YearData, month: number): MonthSummary {
-  const lineas = d.lines.map((line) => ({ line, value: lineValue(d, line, month), adjusted: isAdjusted(d, line, month) }));
+  const lineas = d.lines.map((line) => ({ line, value: lineValue(d, line, month), adjusted: isAdjusted(d, line, month), done: isDone(d, line, month) }));
   const sum = (s: string) => lineas.filter((l) => l.line.section === s).reduce((a, l) => a + l.value, 0);
-  const ingresos = sum("ingreso");
+  const puntuales = d.oneOffIncomes.filter((i) => i.date.startsWith(`${d.year}-`) && monthOf(i.date) === month);
+  const ingresosPuntuales = puntuales.reduce((s, i) => s + n(i.amount), 0);
+  const ingresos = sum("ingreso") + ingresosPuntuales;
   const fijos = sum("fijo");
   const prevision = sum("provision");
 
@@ -113,6 +118,11 @@ export function monthSummary(d: YearData, month: number): MonthSummary {
   return {
     month,
     ingresos,
+    ingresosPuntuales,
+    estado: {
+      ingreso: estadoSeccion(lineas, "ingreso"),
+      fijo: estadoSeccion(lineas, "fijo"),
+    },
     fijos,
     prevision,
     variableReal,
@@ -129,6 +139,20 @@ export function monthSummary(d: YearData, month: number): MonthSummary {
     fondoAnuales: annualFund(d)[month - 1].saldo,
     porCategoria,
     lineas,
+  };
+}
+
+export function isDone(d: YearData, line: BudgetLine, month: number) {
+  return !!d.values.find((x) => x.line_id === line.id && x.month === month && x.year === d.year)?.done;
+}
+
+function estadoSeccion(lineas: MonthSummary["lineas"], section: "ingreso" | "fijo") {
+  // Solo cuentan los conceptos con importe en el mes (un 0 no se espera)
+  const ls = lineas.filter((l) => l.line.section === section && l.value !== 0 && !l.line.is_annual_fund); // la cuota de anuales es ahorro, no un recibo
+  return {
+    hechos: ls.filter((l) => l.done).length,
+    total: ls.length,
+    pendiente: ls.filter((l) => !l.done).reduce((a, l) => a + l.value, 0),
   };
 }
 

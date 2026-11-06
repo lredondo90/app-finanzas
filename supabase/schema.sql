@@ -181,3 +181,23 @@ create index if not exists savings_plans_user_idx on public.savings_plans (user_
 create index if not exists savings_extras_user_idx on public.savings_extras (user_id, year);
 create index if not exists bank_accounts_user_idx on public.bank_accounts (user_id);
 create index if not exists net_worth_history_user_idx on public.net_worth_history (user_id, date);
+
+-- ---------------------------------------------------------
+-- v2 · Estado recibido/pagado por concepto y mes + ingresos puntuales
+-- ---------------------------------------------------------
+alter table public.budget_values add column if not exists done boolean not null default false;
+alter table public.budget_values add column if not exists done_date date;
+
+create table if not exists public.one_off_incomes (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  date date not null,
+  concept text not null,
+  amount numeric(12,2) not null,
+  notes text,
+  created_at timestamptz not null default now()
+);
+create index if not exists one_off_incomes_user_date_idx on public.one_off_incomes (user_id, date);
+alter table public.one_off_incomes enable row level security;
+create policy "own rows" on public.one_off_incomes for all to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));

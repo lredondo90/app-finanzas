@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const items = [
   { href: "/", label: "Dashboard", icon: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" },
   { href: "/gastos", label: "Gastos", icon: "M4 6h16M4 12h16M4 18h10" },
+  { href: "/ingresos", label: "Ingresos", icon: "M12 3v18M17 7.5C17 5.6 14.8 4.5 12 4.5S7 5.6 7 7.5s2 2.6 5 3.3 5 1.6 5 3.6-2.2 3.1-5 3.1-5-1.1-5-3" },
   { href: "/presupuesto", label: "Presupuesto", icon: "M4 4h16v16H4zM4 10h16M10 4v16" },
   { href: "/anuales", label: "Anuales", icon: "M7 3v3m10-3v3M4 8h16M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z" },
   { href: "/inversion", label: "Inversión", icon: "M3 17l6-6 4 4 8-8M14 7h7v7" },
@@ -41,7 +42,7 @@ export default function Nav() {
       </nav>
       {/* Móvil */}
       <nav className="fixed inset-x-0 bottom-0 z-20 flex justify-around border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
-        {items.slice(0, 6).map((it) => (
+        {items.filter((it) => ["/", "/gastos", "/ingresos", "/presupuesto", "/patrimonio"].includes(it.href)).map((it) => (
           <Link key={it.href} href={it.href}
             className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] ${active(it.href) ? "text-accent" : "text-muted"}`}>
             <Icon d={it.icon} /> {it.label}

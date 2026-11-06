@@ -121,6 +121,44 @@ export async function fillPlannedYear(lineId: string, year: number, value: strin
   done();
 }
 
+/** Marca un concepto del mes como recibido (ingreso) o pagado (gasto fijo) */
+export async function setLineDone(lineId: string, year: number, month: number, value: boolean, planned: number) {
+  const { supabase } = await getUser();
+  const { data: existing } = await supabase
+    .from("budget_values").select("line_id").eq("line_id", lineId).eq("year", year).eq("month", month).maybeSingle();
+  if (existing) {
+    await check(supabase.from("budget_values").update({ done: value, done_date: value ? new Date().toISOString().slice(0, 10) : null })
+      .eq("line_id", lineId).eq("year", year).eq("month", month));
+  } else {
+    await check(supabase.from("budget_values").insert({ line_id: lineId, year, month, planned, done: value, done_date: value ? new Date().toISOString().slice(0, 10) : null }));
+  }
+  done();
+}
+
+/** Restablece el importe del mes al plan fijo (borra el ajuste) */
+export async function clearAdjustment(lineId: string, year: number, month: number) {
+  const { supabase } = await getUser();
+  await check(supabase.from("budget_values").update({ adjusted: null }).eq("line_id", lineId).eq("year", year).eq("month", month));
+  done();
+}
+
+export async function saveOneOffIncome(form: FormData) {
+  const { supabase } = await getUser();
+  await check(supabase.from("one_off_incomes").insert({
+    date: str(form, "date")!,
+    concept: str(form, "concept") ?? "Ingreso",
+    amount: numOrNull(form.get("amount")) ?? 0,
+    notes: str(form, "notes"),
+  }));
+  done();
+}
+
+export async function deleteOneOffIncome(form: FormData) {
+  const { supabase } = await getUser();
+  await check(supabase.from("one_off_incomes").delete().eq("id", String(form.get("id"))));
+  done();
+}
+
 export async function addBudgetLine(form: FormData) {
   const { supabase } = await getUser();
   const section = String(form.get("section"));

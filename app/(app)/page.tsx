@@ -46,8 +46,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
 
       {/* KPIs */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Ingresos" value={fmt0(s.ingresos)} sub={`${s.lineas.filter((l) => l.line.section === "ingreso" && l.value).length} fuentes`} />
-        <Stat label="Gastos" value={fmt0(s.totalGastos)} sub={<>Fijos {fmt0(s.fijos)} · Variable {fmt0(s.variableConsiderado)}</>} />
+        <Link href={`/ingresos?m=${month}`} className="block">
+          <Stat label="Ingresos" value={fmt0(s.ingresos)}
+            sub={s.estado.ingreso.hechos === s.estado.ingreso.total
+              ? <span className="text-good">✓ Todos recibidos</span>
+              : <span className="text-bad">⚠ {s.estado.ingreso.hechos}/{s.estado.ingreso.total} recibidos · faltan {fmt0(s.estado.ingreso.pendiente)}</span>} />
+        </Link>
+        <Stat label="Gastos" value={fmt0(s.totalGastos)} sub={<>Fijos {fmt0(s.fijos)} · Variable {fmt0(s.variableConsiderado)}
+          {s.estado.fijo.hechos < s.estado.fijo.total && <span className="block text-bad">⚠ {s.estado.fijo.total - s.estado.fijo.hechos} fijos sin pagar</span>}</>} />
         <Stat label="Resultado" value={fmt0(s.resultado)} tone={s.resultado >= 0 ? "good" : "bad"} sub="Ingresos − gastos" />
         <Stat label="Tras inversión" value={fmt0(s.resultadoTrasInversion)} tone={s.resultadoTrasInversion >= 0 ? "good" : "bad"}
           sub={<>Invertido {fmt0(s.inversion)} · Acumulado año {fmt0(acumulado)}</>} />
