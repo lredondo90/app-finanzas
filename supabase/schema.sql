@@ -201,3 +201,51 @@ create index if not exists one_off_incomes_user_date_idx on public.one_off_incom
 alter table public.one_off_incomes enable row level security;
 create policy "own rows" on public.one_off_incomes for all to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+
+-- ---------------------------------------------------------
+-- v3 · Importación de extractos bancarios
+-- ---------------------------------------------------------
+-- Cada movimiento importado (sirve para no importarlo dos veces y para sumar el importe real de cada concepto)
+create table if not exists public.bank_movements (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  bank text not null,
+  import_key text not null,
+  date date not null,
+  description text not null,
+  detail text,
+  amount numeric(12,2) not null,          -- con signo: negativo = salida
+  action text not null check (action in ('variable','fijo','ingreso','puntual','inversion','ignorar')),
+  category_id uuid references public.categories(id) on delete set null,
+  line_id uuid references public.budget_lines(id) on delete set null,
+  expense_id uuid references public.expenses(id) on delete set null,
+  one_off_income_id uuid references public.one_off_incomes(id) on delete set null,
+  created_at timestamptz not null default now(),
+  unique (user_id, import_key)
+);
+create index if not exists bank_movements_user_date_idx on public.bank_movements (user_id, date);
+create index if not exists bank_movements_line_idx on public.bank_movements (line_id);
+create index if not exists bank_movements_category_idx on public.bank_movements (category_id);
+create index if not exists bank_movements_expense_idx on public.bank_movements (expense_id);
+create index if not exists bank_movements_income_idx on public.bank_movements (one_off_income_id);
+
+-- Reglas aprendidas: «este comercio va a esta categoría / concepto»
+create table if not exists public.import_rules (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  pattern text not null,
+  action text not null check (action in ('variable','fijo','ingreso','puntual','inversion','ignorar')),
+  category_id uuid references public.categories(id) on delete cascade,
+  line_id uuid references public.budget_lines(id) on delete cascade,
+  updated_at timestamptz not null default now(),
+  unique (user_id, pattern)
+);
+create index if not exists import_rules_category_idx on public.import_rules (category_id);
+create index if not exists import_rules_line_idx on public.import_rules (line_id);
+
+alter table public.bank_movements enable row level security;
+alter table public.import_rules enable row level security;
+create policy "own rows" on public.bank_movements for all to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy "own rows" on public.import_rules for all to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));

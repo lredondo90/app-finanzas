@@ -137,7 +137,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           ) : <p className="py-6 text-center text-sm text-muted">Nada por aquí todavía.</p>}
         </div>
         <div className="card">
-          <div className="label mb-3">Apuntar un gasto</div>
+          <div className="mb-3 flex items-center justify-between"><div className="label">Apuntar un gasto</div><Link href="/importar" className="text-xs text-accent">Importar extracto →</Link></div>
           <ExpenseForm compact categories={d.categories} methods={d.paymentMethods} defaultDate={defaultDate} />
         </div>
       </section>

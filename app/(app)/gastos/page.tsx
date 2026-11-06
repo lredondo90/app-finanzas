@@ -21,6 +21,12 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
     <div className="space-y-4">
       <MonthPicker month={month} year={d.year} base="/gastos" />
 
+      <Link href="/importar" className="card flex items-center gap-3 border-accent/30 bg-accent/5 hover:bg-accent/10">
+        <span className="text-2xl" aria-hidden>⇪</span>
+        <span className="flex-1"><b>Importar extracto del banco</b><span className="block text-sm text-ink2">BBVA (Excel), Trade Republic (PDF) u otro Excel/CSV</span></span>
+        <span className="text-accent">→</span>
+      </Link>
+
       <div className="card">
         <div className="label mb-3">Nuevo gasto variable</div>
         <ExpenseForm categories={d.categories} methods={d.paymentMethods} defaultDate={defaultDate} />

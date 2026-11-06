@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "10mb" }, // para importar el Excel
   },
-  serverExternalPackages: ["exceljs"],
+  serverExternalPackages: ["exceljs", "unpdf"],
 };
 
 export default nextConfig;
