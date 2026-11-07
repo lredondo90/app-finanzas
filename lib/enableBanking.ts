@@ -51,14 +51,21 @@ export async function listAspsps(country = "ES") {
 
 /** Paso 1 del permiso: devuelve la URL del banco a la que hay que ir */
 export async function startAuth(aspsp: { name: string; country: string }, redirectUrl: string, state: string) {
-  const validUntil = new Date(Date.now() + 180 * 86400000).toISOString(); // el banco puede acortarlo (90-180 días)
-  return call<{ url: string; authorization_id: string }>("POST", "/auth", {
-    access: { valid_until: validUntil },
+  const ask = (seconds: number) => call<{ url: string; authorization_id: string }>("POST", "/auth", {
+    access: { valid_until: new Date(Date.now() + seconds * 1000).toISOString() },
     aspsp,
     state,
     redirect_url: redirectUrl,
     psu_type: "personal",
   });
+  try {
+    return await ask(180 * 86400); // se pide el máximo habitual (180 días)
+  } catch (e) {
+    // Algunos bancos (p. ej. Trade Republic) solo aceptan menos: el error dice el máximo en segundos
+    const max = /consent validity more than (\d+) seconds/i.exec(e instanceof Error ? e.message : "");
+    if (!max) throw e;
+    return ask(Number(max[1]) - 3600);
+  }
 }
 
 export interface EbAccount {
