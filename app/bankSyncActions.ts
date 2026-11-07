@@ -6,7 +6,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { type ImportRule, suggest } from "@/lib/bankSuggest";
 import { getUser } from "@/lib/data";
-import { deleteSession, enableBankingConfigured, fetchTransactions, startAuth } from "@/lib/enableBanking";
+import { type StoredAccount, deleteSession, enableBankingConfigured, fetchTransactions, startAuth } from "@/lib/enableBanking";
 import { type ConfirmRow, confirmBankImport } from "./importActions";
 
 const STATE_COOKIE = "eb_state";
@@ -57,7 +57,9 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
   if (!conns?.length) return result;
 
   const now = Date.now();
-  const due = conns.filter((c) => !opts.onlyIfStaleHours || !c.last_sync_at || now - new Date(c.last_sync_at).getTime() > opts.onlyIfStaleHours * 3600000);
+  const chosen = (c: { accounts: StoredAccount[] }) => c.accounts.filter((a) => a.sync === true);
+  // Solo las conexiones en las que ya elegiste cuentas (si no, no se descarga nada)
+  const due = conns.filter((c) => chosen(c).length > 0).filter((c) => !opts.onlyIfStaleHours || !c.last_sync_at || now - new Date(c.last_sync_at).getTime() > opts.onlyIfStaleHours * 3600000);
   if (!due.length) return result;
 
   const [categories, lines, rules, expenses] = await Promise.all([
@@ -71,10 +73,12 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
     try {
       if (c.valid_until && new Date(c.valid_until).getTime() < now) throw new Error("El permiso del banco ha caducado: vuelve a conectarlo.");
       const { data: last } = await supabase.from("bank_movements").select("date").eq("bank", c.aspsp_name).order("date", { ascending: false }).limit(1).maybeSingle();
-      const from = last?.date
+      const from: string = last?.date
         ? new Date(new Date(last.date).getTime() - 7 * 86400000).toISOString().slice(0, 10) // 7 días de margen
         : new Date(now - 60 * 86400000).toISOString().slice(0, 10); // primera vez: 2 meses
-      const movements = (await Promise.all((c.accounts as { uid: string }[]).map((a) => fetchTransactions(a.uid, from, c.aspsp_name)))).flat();
+      // Una cuenta que se sincroniza por primera vez trae sus 2 últimos meses
+      const firstFrom = new Date(now - 60 * 86400000).toISOString().slice(0, 10);
+      const movements = (await Promise.all(chosen(c).map((a) => fetchTransactions(a.uid, a.synced ? from : firstFrom, c.aspsp_name)))).flat();
 
       const keysNeeded = movements.filter((m) => m.externalId).map((m) => `${m.bank}|id|${m.externalId}`);
       const existingKeys = new Set<string>();
@@ -82,7 +86,7 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         const { data } = await supabase.from("bank_movements").select("import_key").in("import_key", keysNeeded.slice(i, i + 200));
         (data ?? []).forEach((r) => existingKeys.add(r.import_key));
       }
-      const { data: prevMovs } = await supabase.from("bank_movements").select("bank, date, amount, import_key").eq("bank", c.aspsp_name).gte("date", from);
+      const { data: prevMovs } = await supabase.from("bank_movements").select("bank, date, amount, import_key").eq("bank", c.aspsp_name).gte("date", chosen(c).some((a) => !a.synced) && firstFrom < from ? firstFrom : from);
       const fromFiles = (prevMovs ?? []).filter((p) => !p.import_key.includes("|id|")).map((p) => ({ ...p, amount: Number(p.amount) }));
       const rows = suggest(movements, {
         categories: categories.data ?? [], lines: lines.data ?? [], rules: (rules.data ?? []) as ImportRule[],
@@ -103,7 +107,8 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         await supabase.from("bank_pending").upsert(review.map((r) => ({ import_key: r.key, row: r })), { onConflict: "user_id,import_key", ignoreDuplicates: true });
         result.pending += review.length;
       }
-      await supabase.from("bank_connections").update({ last_sync_at: new Date().toISOString(), last_error: null }).eq("id", c.id);
+      const accounts = (c.accounts as StoredAccount[]).map((a) => (a.sync ? { ...a, synced: true } : a));
+      await supabase.from("bank_connections").update({ accounts, last_sync_at: new Date().toISOString(), last_error: null }).eq("id", c.id);
       result.synced++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al sincronizar";
@@ -113,6 +118,22 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
   }
   revalidatePath("/", "layout");
   return result;
+}
+
+/** Guarda qué cuentas de una conexión se sincronizan y el nombre que les pones */
+export async function saveAccountSelection(form: FormData) {
+  const { supabase } = await getUser();
+  const id = String(form.get("id"));
+  const { data } = await supabase.from("bank_connections").select("accounts").eq("id", id).maybeSingle();
+  if (!data) redirect("/importar");
+  const accounts = (data.accounts as StoredAccount[]).map((a) => ({
+    ...a,
+    sync: form.get(`sync:${a.uid}`) === "on",
+    label: String(form.get(`label:${a.uid}`) ?? "").trim() || null,
+  }));
+  await supabase.from("bank_connections").update({ accounts }).eq("id", id);
+  revalidatePath("/", "layout");
+  redirect(`/importar?cuentas_ok=${accounts.filter((a) => a.sync).length}`);
 }
 
 export async function syncNow() {

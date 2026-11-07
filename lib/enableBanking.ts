@@ -66,7 +66,32 @@ export interface EbAccount {
   account_id?: { iban?: string };
   name?: string;
   details?: string;
+  product?: string;
   currency?: string;
+}
+
+/** Cuenta guardada en bank_connections.accounts. sync sin definir = aún no elegida */
+export interface StoredAccount {
+  uid: string;
+  iban: string | null;
+  name: string | null;
+  product?: string | null;
+  currency: string | null;
+  sync?: boolean;
+  label?: string | null;
+  synced?: boolean; // ya se descargó su histórico inicial
+}
+
+/** Saldo actual de una cuenta (para reconocerla al elegir cuáles sincronizar) */
+export async function fetchBalance(accountUid: string): Promise<number | null> {
+  try {
+    const r = await call<{ balances?: { balance_amount: { amount: string | number }; balance_type?: string }[] }>("GET", `/accounts/${accountUid}/balances`);
+    const bs = r.balances ?? [];
+    const b = bs.find((x) => /CLBD|ITBD|ITAV|CLAV|XPCD/.test(x.balance_type ?? "")) ?? bs[0];
+    return b ? Number(b.balance_amount.amount) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Paso 2: con el código de vuelta se crea la sesión con las cuentas autorizadas */

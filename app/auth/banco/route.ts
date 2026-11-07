@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { createSession } from "@/lib/enableBanking";
+import { type StoredAccount, createSession } from "@/lib/enableBanking";
 import { createClient } from "@/lib/supabase/server";
 
 // Vuelta desde la web del banco tras dar permiso
@@ -25,16 +25,21 @@ export async function GET(request: NextRequest) {
 
   try {
     const s = await createSession(code);
-    const accounts = (s.accounts ?? []).map((a) => ({ uid: a.uid, iban: a.account_id?.iban ?? null, name: a.name ?? a.details ?? null, currency: a.currency ?? null }));
-    const { error } = await supabase.from("bank_connections").insert({
+    const list = s.accounts ?? [];
+    // Con una sola cuenta se sincroniza directamente; con varias (p. ej. cuentas en las que eres autorizado) eliges antes cuáles
+    const accounts: StoredAccount[] = list.map((a) => ({
+      uid: a.uid, iban: a.account_id?.iban ?? null, name: a.name ?? a.details ?? null, product: a.product ?? null, currency: a.currency ?? null,
+      ...(list.length === 1 ? { sync: true } : {}),
+    }));
+    const { data: created, error } = await supabase.from("bank_connections").insert({
       aspsp_name: s.aspsp?.name ?? expected.name,
       aspsp_country: s.aspsp?.country ?? "ES",
       session_id: s.session_id,
       accounts,
       valid_until: s.access?.valid_until ?? null,
-    });
+    }).select("id").single();
     if (error) throw new Error(error.message);
-    return back("conectado=1");
+    return back(accounts.length > 1 ? `conectado=1&cuentas=${created.id}` : "conectado=1");
   } catch (e) {
     return back("error=" + encodeURIComponent(e instanceof Error ? e.message : "No se pudo crear la conexión"));
   }

@@ -10,7 +10,7 @@ const ACTION_LABEL: Record<string, string> = {
   variable: "Gasto variable", fijo: "Gasto fijo", ingreso: "Ingreso fijo", puntual: "Ingreso puntual", inversion: "Inversión", ignorar: "No contar",
 };
 
-export default async function ImportarPage({ searchParams }: { searchParams: Promise<{ error?: string; conectado?: string; sync?: string }> }) {
+export default async function ImportarPage({ searchParams }: { searchParams: Promise<{ error?: string; conectado?: string; sync?: string; cuentas?: string; cuentas_ok?: string }> }) {
   const sp = await searchParams;
   const { supabase } = await getUser();
   const [categories, lines, rules, conns, pending] = await Promise.all([
@@ -42,12 +42,21 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
           {sp.error === "config" ? "Falta configurar Enable Banking en Vercel." : sp.error === "banco" ? "Escribe el nombre del banco." : sp.error}
         </p>
       )}
-      {sp.conectado && <p className="card border-good/40 bg-good/10 text-sm text-good">✓ Banco conectado. Pulsa «Sincronizar ahora» para traer los movimientos.</p>}
+      {sp.conectado && (
+        <p className="card border-good/40 bg-good/10 text-sm text-good">
+          {sp.cuentas ? "✓ Banco conectado. Elige abajo qué cuentas quieres sincronizar." : "✓ Banco conectado. Pulsa «Sincronizar ahora» para traer los movimientos."}
+        </p>
+      )}
+      {sp.cuentas_ok && (
+        <p className="card border-good/40 bg-good/10 text-sm text-good">
+          ✓ Guardado: se sincronizarán {sp.cuentas_ok} {sp.cuentas_ok === "1" ? "cuenta" : "cuentas"}. Pulsa «Sincronizar ahora» para traer sus movimientos.
+        </p>
+      )}
       {sp.sync && !sp.error && (
         <p className="card border-good/40 bg-good/10 text-sm text-good">✓ Sincronizado: {saved || 0} guardados automáticamente, {pend || 0} nuevos por revisar.</p>
       )}
 
-      <BankConnections connections={conns.data ?? []} />
+      <BankConnections connections={conns.data ?? []} openId={sp.cuentas} />
 
       {pendingRows.length > 0 && <BankImport key={pendingRows.length} pendingMode initialRows={pendingRows} categories={cats} lines={ls} />}
 
