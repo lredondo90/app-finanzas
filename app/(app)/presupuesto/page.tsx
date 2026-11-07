@@ -1,3 +1,4 @@
+import Hero from "@/components/Hero";
 import Link from "next/link";
 import CellInput from "@/components/CellInput";
 import NextMonthToggle from "@/components/NextMonthToggle";
@@ -78,7 +79,7 @@ export default async function PresupuestoPage({ searchParams }: { searchParams: 
   };
 
   const totalRow = (label: string, f: (i: number) => number, cls = "") => (
-    <tr className={`bg-line/30 ${cls}`}>
+    <tr key={label} className={`bg-line/30 ${cls}`}>
       <td className="sticky left-0 z-[1] bg-[rgb(var(--line)/0.3)] font-semibold backdrop-blur">{label}</td>
       {months.map((m) => <td key={m} className="tnum px-2 text-right font-semibold">{fmt0(f(m - 1))}</td>)}
       <td className="tnum px-2 text-right font-semibold">{fmt0(yearTotal(f))}</td>
@@ -89,8 +90,10 @@ export default async function PresupuestoPage({ searchParams }: { searchParams: 
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Presupuesto {d.year}</h1>
-          <div className="my-2"><YearSwitcher year={d.year} years={years} /></div>
+          <Hero kicker="Presupuesto" title={String(d.year)}>
+            <YearSwitcher year={d.year} years={years} dark />
+          </Hero>
+          <div className="mt-3" />
           {sp.nuevo && <p className="mb-2 rounded-xl bg-good/10 px-3 py-2 text-sm text-good">✓ Creado {sp.nuevo} con lo previsto del año anterior. Revisa el plan fijo por si algo cambia.</p>}
           <p className="text-sm text-ink2">
             {modo === "fijo"

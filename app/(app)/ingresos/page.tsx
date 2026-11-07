@@ -1,7 +1,8 @@
+import Hero from "@/components/Hero";
 import CellInput from "@/components/CellInput";
 import MonthPicker, { currentMonth } from "@/components/MonthPicker";
 import { clearAdjustment, deleteOneOffIncome, saveOneOffIncome, setBudgetCell, setLineDone } from "@/app/actions";
-import { MONTHS, fmt, fmt0, monthOf, monthSummary, plannedValue } from "@/lib/finance";
+import { MONTHS, firstMonth, fmt, fmt0, monthOf, monthSummary, plannedValue } from "@/lib/finance";
 import { loadYear } from "@/lib/data";
 import type { YearData } from "@/lib/types";
 
@@ -72,14 +73,16 @@ function Section({ d, s, month, section }: { d: YearData; s: Summary; month: num
 export default async function IngresosPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const sp = await searchParams;
   const d = await loadYear();
-  const month = currentMonth(sp.m, d.year);
+  const first = firstMonth(d);
+  const month = currentMonth(sp.m, d.year, first);
   const s = monthSummary(d, month);
   const puntuales = d.oneOffIncomes.filter((i) => monthOf(i.date) === month);
   const defaultDate = `${d.year}-${String(month).padStart(2, "0")}-${String(Math.min(new Date().getDate(), 28)).padStart(2, "0")}`;
 
   return (
     <div className="space-y-4">
-      <MonthPicker month={month} year={d.year} base="/ingresos" />
+      <Hero top={<MonthPicker month={month} year={d.year} base="/ingresos" min={first} />} kicker="Ingresos y recibos" value={fmt0(s.ingresos)} sub={s.estado.ingreso.pendiente > 0 ? `Falta por cobrar ${fmt0(s.estado.ingreso.pendiente)}` : "Todo cobrado"}>
+      </Hero>
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <div className="card"><div className="label">Ingresos del mes</div><div className="mt-1 text-2xl font-semibold">{fmt0(s.ingresos)}</div>

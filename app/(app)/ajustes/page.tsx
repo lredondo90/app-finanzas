@@ -1,3 +1,4 @@
+import Hero from "@/components/Hero";
 import YearSwitcher from "@/components/YearSwitcher";
 import { addCategory, addPaymentMethod, deleteCategory, deletePaymentMethod, saveSettings } from "@/app/actions";
 import { getUser, loadYear } from "@/lib/data";
@@ -13,7 +14,7 @@ export default async function AjustesPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Ajustes</h1>
+      <Hero kicker="Mis Finanzas" title="Ajustes" />
 
       <div className="card space-y-3">
         <div className="label">Año</div>

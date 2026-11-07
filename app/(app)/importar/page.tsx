@@ -1,3 +1,4 @@
+import Hero from "@/components/Hero";
 import BankConnections from "@/components/BankConnections";
 import BankImport from "@/components/BankImport";
 import type { SuggestedRow } from "@/lib/bankSuggest";
@@ -20,7 +21,13 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
     supabase.from("bank_connections").select("*").order("created_at"),
     supabase.from("bank_pending").select("row").order("created_at"),
   ]);
-  const pendingRows = (pending.data ?? []).map((p) => p.row as SuggestedRow).sort((a, b) => b.date.localeCompare(a.date));
+  // Lo anterior al inicio de la app no se revisa (salvo la nómina y los recibos que pasan al mes siguiente)
+  const { data: settings } = await supabase.from("settings").select("start_date").maybeSingle();
+  const start: string | null = settings?.start_date ?? null;
+  const shifts = (id: string | null) => !!(lines.data ?? []).find((l) => l.id === id)?.next_month;
+  const pendingRows = (pending.data ?? []).map((p) => p.row as SuggestedRow)
+    .filter((r) => !start || r.date >= start || ((r.action === "ingreso" || r.action === "fijo") && shifts(r.line_id)))
+    .sort((a, b) => b.date.localeCompare(a.date));
   const [saved, pend] = (sp.sync ?? "").split("|").map(Number);
   const cats = categories.data ?? [];
   const ls = lines.data ?? [];
@@ -29,13 +36,7 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Importar extracto del banco</h1>
-        <p className="text-sm text-ink2">
-          Sube el extracto del mes. Los gastos con tarjeta se apuntan como gastos variables con su categoría, los recibos e ingresos
-          marcan como pagado/recibido su concepto fijo, y los traspasos o aportaciones a planes no se cuentan dos veces.
-        </p>
-      </div>
+      <Hero kicker="Bancos" title="Conexiones y movimientos" sub="Los movimientos llegan solos del banco. Los gastos con tarjeta van a su categoría, los recibos e ingresos marcan su concepto como pagado o recibido, y los traspasos no cuentan dos veces." />
 
       {sp.error && (
         <p className="card border-bad/40 bg-bad/10 text-sm text-bad">
@@ -60,10 +61,6 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
 
       {pendingRows.length > 0 && <BankImport key={pendingRows.length} pendingMode initialRows={pendingRows} categories={cats} lines={ls} />}
 
-      <details className="card" open={!(conns.data ?? []).length}>
-        <summary className="cursor-pointer text-sm font-medium">Subir un extracto a mano (Excel, CSV o PDF)</summary>
-        <div className="mt-3"><BankImport categories={cats} lines={ls} /></div>
-      </details>
 
       {(rules.data?.length ?? 0) > 0 && (
         <details className="card">

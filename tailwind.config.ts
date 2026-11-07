@@ -3,6 +3,7 @@ import type { Config } from "tailwindcss";
 const v = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 
 export default {
+  darkMode: "media",
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
@@ -19,7 +20,7 @@ export default {
         bad: v("bad"),
         warn: v("warn"),
       },
-      fontFamily: { sans: ["system-ui", "-apple-system", "Segoe UI", "sans-serif"] },
+      fontFamily: { sans: ["-apple-system", "BlinkMacSystemFont", "SF Pro Text", "Inter", "system-ui", "Segoe UI", "sans-serif"] },
     },
   },
   plugins: [],

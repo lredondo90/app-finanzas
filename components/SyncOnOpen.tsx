@@ -19,5 +19,5 @@ export default function SyncOnOpen() {
       .finally(() => setState("done"));
   }, [router]);
   if (state !== "syncing") return null;
-  return <span className="text-xs text-muted">↻ Sincronizando con el banco…</span>;
+  return <span className="text-xs opacity-80">↻ Sincronizando…</span>;
 }
