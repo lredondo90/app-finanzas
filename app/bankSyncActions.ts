@@ -83,7 +83,7 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
       // Una cuenta que se sincroniza por primera vez trae sus 2 últimos meses
       const firstFrom = new Date(now - 60 * 86400000).toISOString().slice(0, 10);
       const perAccount = await Promise.all(chosen(c).map(async (a) => {
-        const ms = await fetchTransactions(a.uid, a.synced ? from : firstFrom, c.aspsp_name);
+        const ms = await fetchTransactions(a.uid, a.synced ? from : firstFrom, c.aspsp_name, a.label || (a.iban ? `···${a.iban.slice(-4)}` : null));
         return ms.map((m) => ({ m, kind: a.kind ?? "gastos" }));
       }));
       const tagged = perAccount.flat();
@@ -119,7 +119,7 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         result.saved += auto.length;
       }
       if (review.length) {
-        await supabase.from("bank_pending").upsert(review.map((r) => ({ import_key: r.key, row: r })), { onConflict: "user_id,import_key", ignoreDuplicates: true });
+        await supabase.from("bank_pending").upsert(review.map((r) => ({ import_key: r.key, row: r })), { onConflict: "user_id,import_key" });
         result.pending += review.length;
       }
       const accounts = (c.accounts as StoredAccount[]).map((a) => (a.sync ? { ...a, synced: true } : a));

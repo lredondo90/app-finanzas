@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useActionState, useMemo, useState, useTransition } from "react";
 import { type ConfirmRow, type ParseResult, confirmBankImport, parseBankFile } from "@/app/importActions";
-import type { ImportAction, SuggestedRow } from "@/lib/bankSuggest";
+import { type ImportAction, type SuggestedRow, isGenericPattern } from "@/lib/bankSuggest";
 import type { BudgetLine, Category } from "@/lib/types";
 
 const eur = (v: number) => v.toLocaleString("es-ES", { style: "currency", currency: "EUR" });
@@ -17,7 +17,7 @@ export default function BankImport({ categories, lines, initialRows, pendingMode
   categories: Category[]; lines: BudgetLine[]; initialRows?: SuggestedRow[]; pendingMode?: boolean;
 }) {
   const [parsed, parseAction, parsing] = useActionState<ParseResult | null, FormData>(parseBankFile, null);
-  const [rows, setRows] = useState<Row[] | null>(initialRows?.length ? initialRows.map((r) => ({ ...r, remember: true })) : null);
+  const [rows, setRows] = useState<Row[] | null>(initialRows?.length ? initialRows.map((r) => ({ ...r, remember: !isGenericPattern(r.pattern) })) : null);
   const [lastParsed, setLastParsed] = useState<ParseResult | null>(null);
   const [useReal, setUseReal] = useState(true);
   const [saving, start] = useTransition();
@@ -26,7 +26,7 @@ export default function BankImport({ categories, lines, initialRows, pendingMode
 
   if (parsed !== lastParsed) {
     setLastParsed(parsed);
-    setRows(parsed?.rows ? parsed.rows.map((r) => ({ ...r, remember: true })) : null);
+    setRows(parsed?.rows ? parsed.rows.map((r) => ({ ...r, remember: !isGenericPattern(r.pattern) })) : null);
     setResult(null);
   }
 
@@ -113,16 +113,19 @@ export default function BankImport({ categories, lines, initialRows, pendingMode
               if (filter === "variable" && r.action !== "variable") return null;
               if (filter === "otros" && r.action === "variable") return null;
               return (
-                <li key={r.key} className={`grid gap-2 py-3 sm:grid-cols-[auto_1fr_auto_14rem_12rem] sm:items-center ${r.include ? "" : "opacity-50"}`}>
-                  <input type="checkbox" checked={r.include} onChange={(e) => update(i, { include: e.target.checked })} aria-label="Importar" className="h-4 w-4 accent-[rgb(var(--accent))]" />
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{r.description}</div>
-                    <div className="truncate text-xs text-muted">
-                      {r.date.split("-").reverse().join("/")}{r.detail ? ` · ${r.detail}` : ""}
+                <li key={r.key} className={`grid gap-2 py-3 sm:grid-cols-[1fr_14rem_12rem] sm:items-center ${r.include ? "" : "opacity-50"}`}>
+                  <div className="flex min-w-0 items-start gap-3">
+                    <input type="checkbox" checked={r.include} onChange={(e) => update(i, { include: e.target.checked })} aria-label="Importar" className="mt-1 h-4 w-4 shrink-0 accent-[rgb(var(--accent))]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium [overflow-wrap:anywhere]">{r.description}</div>
+                      <div className="text-xs text-muted">
+                        {[r.date.split("-").reverse().join("/"), [r.bank, r.account].filter(Boolean).join(" "), r.type && r.type !== r.description ? r.type : null].filter(Boolean).join(" · ")}
+                      </div>
+                      {r.detail && <div className="text-xs text-muted [overflow-wrap:anywhere]">{r.detail}</div>}
+                      <div className={`text-xs ${r.learned ? "text-good" : "text-ink2"}`}>{r.learned ? "★ " : ""}{r.reason}</div>
                     </div>
-                    <div className={`text-xs ${r.learned ? "text-good" : "text-ink2"}`}>{r.learned ? "★ " : ""}{r.reason}</div>
+                    <div className={`tnum shrink-0 text-right font-semibold ${r.amount > 0 ? "text-good" : ""}`}>{eur(r.amount)}</div>
                   </div>
-                  <div className={`tnum text-right font-semibold ${r.amount > 0 ? "text-good" : ""}`}>{eur(r.amount)}</div>
                   <select className="input" value={encode(r)} aria-label="Qué es"
                     onChange={(e) => {
                       const [a, id] = e.target.value.split(":");

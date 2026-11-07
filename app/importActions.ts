@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { parseStatement } from "@/lib/bankParse";
-import { type ImportAction, type ImportRule, type SuggestedRow, paymentMethodOf, suggest } from "@/lib/bankSuggest";
+import { type ImportAction, type ImportRule, type SuggestedRow, isGenericPattern, paymentMethodOf, suggest } from "@/lib/bankSuggest";
 import { getUser } from "@/lib/data";
 
 export interface ParseResult {
@@ -104,7 +104,7 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
         if (r.action === "fijo") fijos++; else ingresos++;
       } else otros++;
 
-      if (r.remember && r.pattern) {
+      if (r.remember && r.pattern && !isGenericPattern(r.pattern)) {
         await supabase.from("import_rules").upsert(
           {
             pattern: r.pattern, action: r.action,

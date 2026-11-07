@@ -1,5 +1,6 @@
 // Sugiere qué hacer con cada movimiento del banco (gasto variable, ingreso/gasto fijo, ignorar…)
 import type { Movement } from "./bankParse";
+import { mccLabel } from "./mcc";
 import type { BudgetLine, Category, Expense } from "./types";
 
 export type ImportAction = "variable" | "fijo" | "ingreso" | "puntual" | "inversion" | "ignorar";
@@ -56,6 +57,15 @@ const CATEGORY_HINTS: [RegExp, string][] = [
 const ANNUAL_HINT = /seguro|mutua|mapfre|allianz|axa|linea directa|\bibi\b|impuesto|hacienda|aeat|\brenta\b|suma tributos/;
 const SUPPLY_HINT = /iberdrola|endesa|naturgy|sunflower|holaluz|totalenergies|octopus/; // → línea LUZ
 
+/** Textos que no identifican al comercio: no se aprenden (si no, todos acabarían en la misma categoría) */
+export const isGenericPattern = (p: string) => !p || /^(movimiento|pago sin descripcion|ingreso sin descripcion|pago|cargo|abono|compra|card transaction|transaction)$/.test(p);
+
+const MCC_CATEGORY: [RegExp, string][] = [
+  [/Supermercado|Alimentación/, "comida"], [/Restaurante/, "restaurantes"], [/Gasolinera|Parking|Taller|Peaje/, "coche"],
+  [/Farmacia|Salud/, "salud"], [/Ropa|Grandes almacenes|Venta online/, "ropa"], [/Hotel|Aerolínea|Agencia|Transporte|Taxi/, "viajes"],
+  [/Bricolaje|Hogar/, "casa"], [/Floristería|Juguetería/, "regalos"], [/Cine|Ocio/, "restaurantes"],
+];
+
 export function suggest(
   movements: (Movement & { externalId?: string | null })[],
   ctx: {
@@ -102,13 +112,18 @@ export function suggest(
     });
 
     if (ctx.existingKeys.has(key)) return row("ignorar", "Ya importado antes", { include: false });
-    const sameIdx = ctx.existingMovs?.findIndex((e) => norm(e.bank) === norm(m.bank) && e.date === m.date && Math.abs(Number(e.amount) - m.amount) < 0.005) ?? -1;
+    // Mismo importe y fecha (o hasta 3 días de diferencia: el extracto y el banco a veces usan fechas distintas)
+    const sameMov = (e: { bank: string; date: string; amount: number }, days: number) =>
+      norm(e.bank) === norm(m.bank) && Math.abs(Number(e.amount) - m.amount) < 0.005 &&
+      Math.abs(new Date(e.date).getTime() - new Date(m.date).getTime()) <= days * 86400000;
+    let sameIdx = ctx.existingMovs?.findIndex((e) => sameMov(e, 0)) ?? -1;
+    if (sameIdx < 0 && m.externalId !== undefined) sameIdx = ctx.existingMovs?.findIndex((e) => sameMov(e, 3)) ?? -1;
     if (sameIdx >= 0) {
       ctx.existingMovs!.splice(sameIdx, 1); // cada movimiento previo solo «tapa» uno nuevo
       return row("ignorar", "Ya importado desde un extracto", { include: false });
     }
 
-    const rule = ctx.rules.find((r) => r.pattern === pattern);
+    const rule = isGenericPattern(pattern) ? undefined : ctx.rules.find((r) => r.pattern === pattern);
     if (rule) return row(rule.action, "Aprendido de otras veces", { category_id: rule.category_id, line_id: rule.line_id, learned: true });
 
     if (/savings plan|fondos de inversion|suscripcion periodica|\boperar\b/.test(text))
@@ -132,12 +147,14 @@ export function suggest(
 
     // Gasto variable: categoría aprendida, por palabra clave u «Otros»
     const dup = ctx.expenses.find((e) => e.date === m.date && Math.abs(Number(e.amount) - Math.abs(m.amount)) < 0.005);
-    const learned = learnedCat.get(pattern);
+    const learned = isGenericPattern(pattern) ? undefined : learnedCat.get(pattern);
     const learnedId = learned ? [...learned.entries()].sort((a, b) => b[1] - a[1])[0][0] : null;
     const hint = CATEGORY_HINTS.find(([re]) => re.test(text));
-    const category_id = learnedId ?? (hint ? catByHint(hint[1]) : null) ?? otros;
+    const mccHint = MCC_CATEGORY.find(([re]) => re.test(mccLabel(m.mcc) ?? ""));
+    const category_id = learnedId ?? (hint ? catByHint(hint[1]) : null) ?? (mccHint ? catByHint(mccHint[1]) : null) ?? otros;
     if (dup) return row("variable", "Posible duplicado: ya tienes un gasto igual ese día", { category_id, include: false });
-    const reason = learnedId ? "Categoría según tus gastos anteriores" : hint ? "Categoría por el comercio"
+    const reason = learnedId ? "Categoría según tus gastos anteriores" : hint ? "Categoría por el comercio" : mccHint ? `Categoría por el tipo de comercio (${mccLabel(m.mcc)})`
+      : isGenericPattern(pattern) ? "El banco no dice el comercio: elige la categoría"
       : /adeudo|recibo/.test(text) ? "Recibo domiciliado: si es un gasto fijo, elige cuál" : "Revisa la categoría";
     return row("variable", reason, { category_id });
   });

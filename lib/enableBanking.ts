@@ -1,6 +1,7 @@
 // Cliente mínimo de la API de Enable Banking (PSD2). Solo se usa en el servidor.
 import { createSign } from "crypto";
 import type { Movement } from "./bankParse";
+import { mccLabel } from "./mcc";
 
 const API = "https://api.enablebanking.com";
 
@@ -138,12 +139,23 @@ interface EbTransaction {
   creditor?: { name?: string | null } | null;
   debtor?: { name?: string | null } | null;
   remittance_information?: string[] | null;
-  bank_transaction_code?: { description?: string | null } | null;
+  bank_transaction_code?: { description?: string | null; code?: string | null; sub_code?: string | null } | null;
   note?: string | null;
+  merchant_category_code?: string | null;
+  reference_number?: string | null;
+  creditor_account?: { iban?: string | null; other?: { identification?: string | null } | null } | null;
+  debtor_account?: { iban?: string | null; other?: { identification?: string | null } | null } | null;
+  creditor_agent?: { name?: string | null } | null;
+  debtor_agent?: { name?: string | null } | null;
 }
 
+const iban4 = (a?: { iban?: string | null; other?: { identification?: string | null } | null } | null) => {
+  const id = a?.iban ?? a?.other?.identification;
+  return id ? `cuenta ···${id.replace(/\s/g, "").slice(-4)}` : null;
+};
+
 /** Movimientos de una cuenta desde una fecha (sigue la paginación) */
-export async function fetchTransactions(accountUid: string, dateFrom: string, bank: string): Promise<(Movement & { externalId: string | null })[]> {
+export async function fetchTransactions(accountUid: string, dateFrom: string, bank: string, account: string | null = null): Promise<(Movement & { externalId: string | null })[]> {
   const out: (Movement & { externalId: string | null })[] = [];
   let key: string | null = null;
   const seen = new Set<string>();
@@ -159,14 +171,27 @@ export async function fetchTransactions(accountUid: string, dateFrom: string, ba
       const amount = t.credit_debit_indicator === "CRDT" ? raw : -raw;
       const counterpart = (amount < 0 ? t.creditor?.name : t.debtor?.name)?.trim();
       const remit = (t.remittance_information ?? []).map((x) => x.trim()).filter(Boolean).join(" · ");
+      const note = t.note?.trim() || null;
+      const otherAcc = iban4(amount < 0 ? t.creditor_account : t.debtor_account);
+      const agent = (amount < 0 ? t.creditor_agent?.name : t.debtor_agent?.name)?.trim() || null;
+      const code = t.bank_transaction_code;
+      const codeText = code?.description || [code?.code, code?.sub_code].filter(Boolean).join(" ") || null;
+      const mcc = t.merchant_category_code?.trim() || null;
+      // Lo más descriptivo como texto principal; el resto, como detalle
+      const candidates = [counterpart, remit, note, otherAcc && agent ? `${agent} (${otherAcc})` : otherAcc, codeText, mccLabel(mcc)].filter(Boolean) as string[];
+      const description = candidates[0] ?? (amount < 0 ? "Pago sin descripción" : "Ingreso sin descripción");
+      const detail = [...new Set(candidates.slice(1))].filter((x) => x !== codeText).join(" · ") || null;
       out.push({
         bank,
+        account,
         date,
-        description: counterpart || remit || t.bank_transaction_code?.description || "Movimiento",
-        detail: counterpart && remit ? remit : null,
-        type: t.bank_transaction_code?.description ?? null,
+        description,
+        detail,
+        type: codeText,
+        mcc,
         amount: Math.round(amount * 100) / 100,
         externalId: t.entry_reference || t.transaction_id || null,
+        raw: t,
       });
     }
     key = r.continuation_key ?? null;
@@ -175,3 +200,4 @@ export async function fetchTransactions(accountUid: string, dateFrom: string, ba
   }
   return out;
 }
+

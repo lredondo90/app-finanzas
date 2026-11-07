@@ -9,6 +9,9 @@ export interface Movement {
   detail: string | null; // texto secundario (observaciones, tipo…)
   type: string | null; // tipo de operación según el banco (tarjeta, adeudo, transferencia…)
   amount: number; // con signo: negativo = salida
+  account?: string | null; // cuenta de la que viene (conexión directa)
+  mcc?: string | null; // código de comercio de la tarjeta (conexión directa)
+  raw?: unknown; // datos originales del banco (solo para revisar)
 }
 
 const MESES: Record<string, number> = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, sept: 9, oct: 10, nov: 11, dic: 12 };
