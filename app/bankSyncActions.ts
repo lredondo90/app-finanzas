@@ -118,6 +118,10 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         if (res.error) throw new Error(res.error);
         result.saved += auto.length;
       }
+      // Al volver a descargar el histórico de una cuenta, lo que quedaba por revisar de ese banco sin descripción se sustituye
+      if (chosen(c).some((a) => !a.synced)) {
+        await supabase.from("bank_pending").delete().eq("row->>bank", c.aspsp_name).eq("row->>description", "Movimiento");
+      }
       if (review.length) {
         await supabase.from("bank_pending").upsert(review.map((r) => ({ import_key: r.key, row: r })), { onConflict: "user_id,import_key" });
         result.pending += review.length;
