@@ -6,7 +6,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { type ImportRule, suggest } from "@/lib/bankSuggest";
 import { getUser } from "@/lib/data";
-import { type StoredAccount, deleteSession, enableBankingConfigured, fetchTransactions, startAuth } from "@/lib/enableBanking";
+import { type AccountKind, type StoredAccount, deleteSession, enableBankingConfigured, fetchTransactions, startAuth } from "@/lib/enableBanking";
 import { type ConfirmRow, confirmBankImport } from "./importActions";
 
 const STATE_COOKIE = "eb_state";
@@ -78,7 +78,12 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         : new Date(now - 60 * 86400000).toISOString().slice(0, 10); // primera vez: 2 meses
       // Una cuenta que se sincroniza por primera vez trae sus 2 últimos meses
       const firstFrom = new Date(now - 60 * 86400000).toISOString().slice(0, 10);
-      const movements = (await Promise.all(chosen(c).map((a) => fetchTransactions(a.uid, a.synced ? from : firstFrom, c.aspsp_name)))).flat();
+      const perAccount = await Promise.all(chosen(c).map(async (a) => {
+        const ms = await fetchTransactions(a.uid, a.synced ? from : firstFrom, c.aspsp_name);
+        return ms.map((m) => ({ m, kind: a.kind ?? "gastos" }));
+      }));
+      const tagged = perAccount.flat();
+      const movements = tagged.map((t) => t.m);
 
       const keysNeeded = movements.filter((m) => m.externalId).map((m) => `${m.bank}|id|${m.externalId}`);
       const existingKeys = new Set<string>();
@@ -91,11 +96,17 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
       const rows = suggest(movements, {
         categories: categories.data ?? [], lines: lines.data ?? [], rules: (rules.data ?? []) as ImportRule[],
         existingKeys, expenses: expenses.data ?? [], existingMovs: fromFiles,
+      }).map((r, i) => {
+        // Cuentas de ahorro y de gastos anuales: sus movimientos no son gasto ni ingreso del mes
+        const kind = tagged[i].kind;
+        if (kind === "gastos" || !r.include) return r;
+        return { ...r, action: "ignorar" as const, category_id: null, line_id: null, learned: false,
+          reason: kind === "ahorro" ? "Cuenta de ahorro: no cuenta como gasto del mes" : "Cuenta de gastos anuales: ya cuenta en Anuales" };
       }).filter((r) => !existingKeys.has(r.key));
 
       const auto = rows.filter((r) =>
         r.reason === "Ya importado desde un extracto" || // se registra como «no contar» para que no vuelva a salir
-        (r.include && (r.learned || r.action === "inversion" || (r.action === "ignorar" && /entre tus cuentas/.test(r.reason)))));
+        (r.include && (r.learned || r.action === "inversion" || (r.action === "ignorar" && /entre tus cuentas|^Cuenta de /.test(r.reason)))));
       const review = rows.filter((r) => !auto.includes(r));
 
       if (auto.length) {
@@ -130,6 +141,7 @@ export async function saveAccountSelection(form: FormData) {
     ...a,
     sync: form.get(`sync:${a.uid}`) === "on",
     label: String(form.get(`label:${a.uid}`) ?? "").trim() || null,
+    kind: (["gastos", "ahorro", "anuales"].includes(String(form.get(`kind:${a.uid}`))) ? String(form.get(`kind:${a.uid}`)) : "gastos") as AccountKind,
   }));
   await supabase.from("bank_connections").update({ accounts }).eq("id", id);
   revalidatePath("/", "layout");

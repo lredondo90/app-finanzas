@@ -87,7 +87,16 @@ export interface StoredAccount {
   sync?: boolean;
   label?: string | null;
   synced?: boolean; // ya se descargó su histórico inicial
+  kind?: AccountKind; // sin definir = gastos
 }
+
+/** Para qué usas la cuenta: de gastos (se revisa todo), de ahorro o de gastos anuales (no se cuentan como gasto del mes) */
+export type AccountKind = "gastos" | "ahorro" | "anuales";
+export const ACCOUNT_KINDS: { value: AccountKind; label: string }[] = [
+  { value: "gastos", label: "Gastos del día a día" },
+  { value: "ahorro", label: "Ahorro" },
+  { value: "anuales", label: "Gastos anuales" },
+];
 
 /** Saldo actual de una cuenta (para reconocerla al elegir cuáles sincronizar) */
 export async function fetchBalance(accountUid: string): Promise<number | null> {

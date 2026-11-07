@@ -1,5 +1,5 @@
 import { connectBank, disconnectBank, saveAccountSelection, syncNow } from "@/app/bankSyncActions";
-import { type StoredAccount, enableBankingConfigured, fetchBalance, listAspsps } from "@/lib/enableBanking";
+import { ACCOUNT_KINDS, type StoredAccount, enableBankingConfigured, fetchBalance, listAspsps } from "@/lib/enableBanking";
 
 interface Conn {
   id: string; aspsp_name: string; accounts: StoredAccount[];
@@ -11,7 +11,10 @@ const fmtWhen = (iso: string) =>
 
 const eur = (v: number) => v.toLocaleString("es-ES", { style: "currency", currency: "EUR" });
 const ibanShort = (iban: string | null) => (iban ? `${iban.slice(0, 4)} ···· ${iban.slice(-4)}` : null);
-const accountName = (a: StoredAccount) => a.label || ibanShort(a.iban) || a.name || "Cuenta";
+const accountName = (a: StoredAccount) => {
+  const n = a.label || ibanShort(a.iban) || a.name || "Cuenta";
+  return a.kind && a.kind !== "gastos" ? `${n} (${a.kind === "ahorro" ? "ahorro" : "anuales"})` : n;
+};
 
 export default async function BankConnections({ connections, openId }: { connections: Conn[]; openId?: string }) {
   const configured = enableBankingConfigured();
@@ -84,7 +87,7 @@ export default async function BankConnections({ connections, openId }: { connect
                       {c.accounts.map((a) => {
                         const bal = balances.get(a.uid);
                         return (
-                          <li key={a.uid} className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 py-2 sm:grid-cols-[auto_1fr_auto_12rem]">
+                          <li key={a.uid} className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 py-2 sm:grid-cols-[auto_1fr_auto_12rem_11rem]">
                             <input type="checkbox" name={`sync:${a.uid}`} defaultChecked={a.sync === true} aria-label="Sincronizar"
                               className="h-4 w-4 accent-[rgb(var(--accent))]" />
                             <div className="min-w-0">
@@ -96,10 +99,17 @@ export default async function BankConnections({ connections, openId }: { connect
                             </div>
                             <input className="input col-start-2 sm:col-start-auto" name={`label:${a.uid}`} defaultValue={a.label ?? ""}
                               placeholder="Nombre (p. ej. Nómina)" aria-label="Nombre de la cuenta" />
+                            <select className="input col-start-2 sm:col-start-auto" name={`kind:${a.uid}`} defaultValue={a.kind ?? "gastos"} aria-label="Tipo de cuenta">
+                              {ACCOUNT_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
+                            </select>
                           </li>
                         );
                       })}
                     </ul>
+                    <p className="text-xs text-muted">
+                      De gastos: cada movimiento se apunta o te lo dejo para revisar. De ahorro y de gastos anuales: sus movimientos se guardan
+                      como «no contar», para que ni el dinero que apartas ni los recibos anuales (que ya cuentan en Anuales) salgan como gasto del mes.
+                    </p>
                     <button className="btn">Guardar selección</button>
                   </form>
                 </details>
