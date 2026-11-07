@@ -12,7 +12,11 @@ export async function GET(request: NextRequest) {
   jar.delete("eb_state");
 
   const err = searchParams.get("error");
-  if (err) return back(`error=${encodeURIComponent(searchParams.get("error_description") ?? err)}`);
+  if (err) {
+    // Algunos bancos mandan el texto con «+» en vez de espacios
+    const desc = (searchParams.get("error_description") ?? err).replace(/\+/g, " ").replace(/\s+/g, " ").trim();
+    return back(`error=${encodeURIComponent(`El banco ha cancelado el permiso: ${desc}. Vuelve a intentarlo desde el principio.`)}`);
+  }
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   let expected: { state: string; name: string } | null = null;
