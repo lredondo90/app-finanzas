@@ -4,6 +4,10 @@ export interface Settings {
   user_id: string;
   year: number;
   annual_fund_initial: number;
+  /** Día de corte del mes contable (nómina y recibos marcados) */
+  cutoff_day?: number | null;
+  /** Primer mes con datos reales (YYYY-MM-01) */
+  start_date?: string | null;
 }
 
 export interface BudgetLine {
@@ -12,6 +16,8 @@ export interface BudgetLine {
   name: string;
   sort_order: number;
   is_annual_fund: boolean;
+  /** Si llega después del día de corte, cuenta para el mes siguiente (nómina, recibos de fin de mes) */
+  next_month?: boolean;
 }
 
 export interface BudgetValue {
@@ -102,6 +108,7 @@ export interface BankAccount {
   name: string;
   balance: number;
   sort_order: number;
+  counted?: boolean;
 }
 
 export interface NetWorthPoint {
@@ -128,6 +135,11 @@ export interface YearData {
   banks: BankAccount[];
   history: NetWorthPoint[];
   oneOffIncomes: OneOffIncome[];
+  /** Cuentas sincronizadas con el banco (con su último saldo) */
+  syncedAccounts: SyncedAccount[];
+  holdings: FundHolding[];
+  /** Compras/ventas de fondos que llegan en los movimientos del banco */
+  fundMovements: { date: string; description: string; amount: number }[];
   /** Última carga de gastos por origen (banco o a mano) */
   loads: { source: string; loadedAt: string; lastMovement: string | null }[];
 }
@@ -138,4 +150,30 @@ export interface OneOffIncome {
   concept: string;
   amount: number;
   notes: string | null;
+}
+
+export interface SyncedAccount {
+  connectionId: string;
+  bank: string;
+  uid: string;
+  label: string;
+  iban: string | null;
+  kind: string;
+  currency: string | null;
+  balance: number | null;
+  balanceAt: string | null;
+}
+
+export interface FundHolding {
+  isin: string;
+  name: string;
+  initial_units: number;
+  initial_date: string | null;
+  price: number | null;
+  price_date: string | null;
+  price_symbol: string | null;
+  price_manual: boolean;
+  initial_value: number | null;
+  initial_cost: number | null;
+  match_text: string | null;
 }

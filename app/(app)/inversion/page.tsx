@@ -1,3 +1,4 @@
+import Hero from "@/components/Hero";
 import CellInput from "@/components/CellInput";
 import Stat from "@/components/Stat";
 import { deleteInvestment, deletePlan, saveInvestment, savePlan, setAssetPrice, setPlanExtra } from "@/app/actions";
@@ -40,10 +41,7 @@ export default async function InversionPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Inversión</h1>
-        <p className="text-sm text-ink2">Planes de ahorro periódico y operaciones puntuales. La aportación neta de cada mes se resta en el resultado del dashboard.</p>
-      </div>
+      <Hero kicker="Planes e inversión" title="Lo que aportas cada mes" sub="Planes de ahorro periódico y operaciones puntuales. La aportación del mes se resta en el resultado de Inicio. El valor real de tus fondos está en Patrimonio." />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Valor fondos" value={fmt0(ps.valor)} />

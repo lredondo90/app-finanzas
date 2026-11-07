@@ -1,46 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { parseStatement } from "@/lib/bankParse";
-import { type ImportAction, type ImportRule, type SuggestedRow, isGenericPattern, paymentMethodOf, suggest } from "@/lib/bankSuggest";
+import { type ImportAction, isGenericPattern, paymentMethodOf } from "@/lib/bankSuggest";
+import { accountingMonth, accountingWindow } from "@/lib/accounting";
 import { getUser } from "@/lib/data";
-
-export interface ParseResult {
-  error?: string;
-  bank?: string;
-  fileName?: string;
-  rows?: SuggestedRow[];
-}
-
-/** Paso 1: leer el extracto y sugerir qué hacer con cada movimiento (no guarda nada) */
-export async function parseBankFile(_: unknown, form: FormData): Promise<ParseResult> {
-  const file = form.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "Elige el extracto del banco." };
-  if (file.size > 8 * 1024 * 1024) return { error: "El archivo es demasiado grande (máx. 8 MB)." };
-  const { supabase } = await getUser();
-  try {
-    const { bank, movements } = await parseStatement(file);
-    if (!movements.length) return { error: "No he encontrado movimientos en el archivo." };
-    const dates = movements.map((m) => m.date).sort();
-    const [categories, lines, rules, existing, expenses] = await Promise.all([
-      supabase.from("categories").select("*").order("sort_order"),
-      supabase.from("budget_lines").select("*").order("sort_order"),
-      supabase.from("import_rules").select("pattern, action, category_id, line_id"),
-      supabase.from("bank_movements").select("import_key").gte("date", dates[0]).lte("date", dates[dates.length - 1]),
-      supabase.from("expenses").select("*").order("date", { ascending: false }).limit(3000),
-    ]);
-    const rows = suggest(movements, {
-      categories: categories.data ?? [],
-      lines: lines.data ?? [],
-      rules: (rules.data ?? []) as ImportRule[],
-      existingKeys: new Set((existing.data ?? []).map((r) => r.import_key)),
-      expenses: expenses.data ?? [],
-    });
-    return { bank, fileName: file.name, rows };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "No he podido leer el archivo." };
-  }
-}
 
 export interface ConfirmRow {
   key: string;
@@ -63,6 +26,12 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
   try {
     let gastos = 0, fijos = 0, ingresos = 0, puntuales = 0, otros = 0;
     const touched = new Set<string>(); // line|year|month
+    const [{ data: settings }, { data: lineFlags }] = await Promise.all([
+      supabase.from("settings").select("cutoff_day").maybeSingle(),
+      supabase.from("budget_lines").select("id, next_month"),
+    ]);
+    const cutoff: number = settings?.cutoff_day ?? 25;
+    const shifts = (lineId: string) => !!(lineFlags ?? []).find((l) => l.id === lineId)?.next_month;
 
     for (const r of rows) {
       const { data: inserted, error } = await supabase
@@ -100,7 +69,9 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
         await supabase.from("bank_movements").update({ one_off_income_id: inc.id }).eq("id", inserted.id);
         puntuales++;
       } else if ((r.action === "fijo" || r.action === "ingreso") && r.line_id) {
-        touched.add(`${r.line_id}|${r.date.slice(0, 4)}|${Number(r.date.slice(5, 7))}`);
+        // La nómina y los recibos marcados que llegan tras el día de corte cuentan para el mes siguiente
+        const am = accountingMonth(r.date, shifts(r.line_id), cutoff);
+        touched.add(`${r.line_id}|${am.year}|${am.month}`);
         if (r.action === "fijo") fijos++; else ingresos++;
       } else otros++;
 
@@ -121,8 +92,7 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
     for (const t of touched) {
       const [lineId, y, m] = t.split("|");
       const year = Number(y), month = Number(m);
-      const from = `${year}-${String(month).padStart(2, "0")}-01`;
-      const to = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+      const { from, to } = accountingWindow(year, month, shifts(lineId), cutoff);
       const { data: movs } = await supabase.from("bank_movements").select("amount").eq("line_id", lineId).gte("date", from).lt("date", to);
       const real = Math.round(Math.abs((movs ?? []).reduce((s, x) => s + Number(x.amount), 0)) * 100) / 100;
       const { data: existing } = await supabase.from("budget_values").select("planned").eq("line_id", lineId).eq("year", year).eq("month", month).maybeSingle();

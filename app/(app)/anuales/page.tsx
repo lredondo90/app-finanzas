@@ -1,3 +1,4 @@
+import Hero from "@/components/Hero";
 import { deleteAnnual, saveAnnual, saveSettings } from "@/app/actions";
 import { MONTHS, MONTHS_SHORT, annualFund, annualMonthlyQuota, fmt, fmt0 } from "@/lib/finance";
 import { loadYear } from "@/lib/data";
@@ -21,10 +22,7 @@ export default async function AnualesPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Gastos anuales</h1>
-        <p className="text-sm text-ink2">Apunta cada recibo anual y el mes en que llega. Se reparte entre 12 y esa cuota alimenta la línea «Seguros / anuales» del presupuesto.</p>
-      </div>
+      <Hero kicker="Gastos anuales" value={fmt0(total)} sub="Apunta cada recibo anual y el mes en que llega. Se reparte entre 12 y esa cuota alimenta «Seguros / anuales» del presupuesto." />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <div className="card"><div className="label">Total anual</div><div className="mt-1 text-2xl font-semibold">{fmt0(total)}</div></div>

@@ -2,34 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Paleta inspirada en banca móvil: azul marino profundo, azul medio de acción y aguamarina de acento */
 :root {
   color-scheme: light;
-  --page: 249 249 247;
-  --surface: 252 252 251;
-  --ink: 11 11 11;
-  --ink2: 82 81 78;
-  --muted: 137 135 129;
-  --line: 225 224 217;
-  --accent: 42 120 214;   /* serie 1 · azul */
-  --accent2: 235 104 52;  /* serie 2 · naranja */
-  --good: 0 99 0;
-  --bad: 208 59 59;
-  --warn: 250 178 25;
+  --page: 243 245 249;
+  --surface: 255 255 255;
+  --ink: 7 33 70;
+  --ink2: 72 89 117;
+  --muted: 125 138 160;
+  --line: 226 231 240;
+  --accent: 25 115 184;
+  --accent2: 45 204 205;
+  --good: 2 132 104;
+  --bad: 214 55 70;
+  --warn: 240 150 20;
+  --hero-from: 7 33 70;
+  --hero-to: 0 68 129;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --page: 13 13 13;
-    --surface: 26 26 25;
-    --ink: 240 239 236;
-    --ink2: 195 194 183;
-    --muted: 137 135 129;
-    --line: 44 44 42;
-    --accent: 57 135 229;
-    --accent2: 217 89 38;
-    --good: 12 163 12;
-    --bad: 230 103 103;
+    --page: 5 12 28;
+    --surface: 15 26 48;
+    --ink: 236 241 248;
+    --ink2: 178 191 212;
+    --muted: 122 138 164;
+    --line: 33 48 78;
+    --accent: 92 178 245;
+    --accent2: 45 204 205;
+    --good: 60 196 160;
+    --bad: 255 110 120;
     --warn: 250 178 25;
+    --hero-from: 4 22 52;
+    --hero-to: 0 52 104;
   }
 }
 
@@ -43,21 +48,40 @@ body {
   color: rgb(var(--ink));
 }
 
-.card {
-  @apply rounded-2xl border border-line bg-surface p-4 sm:p-5;
+@layer components {
+  .card {
+    @apply rounded-3xl bg-surface p-4 shadow-[0_1px_2px_rgb(7_33_70/0.05),0_6px_24px_rgb(7_33_70/0.06)] sm:p-5 dark:shadow-none dark:ring-1 dark:ring-line;
+  }
+  /* Cabecera azul con degradado (a sangre en el móvil) */
+  .hero {
+    @apply relative -mx-4 overflow-hidden rounded-b-[2rem] px-5 pb-7 pt-[max(1.25rem,env(safe-area-inset-top))] text-white sm:mx-0 sm:mt-4 sm:rounded-[2rem] sm:px-7 sm:pt-6;
+    background:
+      radial-gradient(120% 90% at 100% 0%, rgb(var(--accent2) / 0.35) 0%, transparent 55%),
+      linear-gradient(160deg, rgb(var(--hero-from)) 0%, rgb(var(--hero-to)) 100%);
+  }
+  .hero-chip {
+    @apply rounded-full bg-white/10 px-3 py-1 text-xs text-white/90 backdrop-blur hover:bg-white/20;
+  }
+  .label {
+    @apply text-xs font-medium uppercase tracking-wide text-muted;
+  }
+  .section-title {
+    @apply text-base font-semibold text-ink;
+  }
+  .input {
+    @apply w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-base text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 sm:text-sm;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1 rounded-full border border-line bg-surface px-4 py-2 text-sm text-ink2 hover:bg-line/40;
+  }
+  .icon-tile {
+    @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-lg;
+  }
 }
-.label {
-  @apply text-xs font-medium uppercase tracking-wide text-muted;
-}
-.input {
-  @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-base text-ink outline-none focus:border-accent sm:text-sm;
-}
-.btn {
-  @apply inline-flex items-center justify-center gap-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50;
-}
-.btn-ghost {
-  @apply inline-flex items-center justify-center gap-1 rounded-lg border border-line px-3 py-2 text-sm text-ink2 hover:bg-line/40;
-}
+
 .tnum {
   font-variant-numeric: tabular-nums;
 }
@@ -70,3 +94,5 @@ table.data th {
 table.data td {
   @apply border-b border-line/70 px-2 py-2;
 }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }

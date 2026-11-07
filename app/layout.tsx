@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   title: "Mis Finanzas",
   description: "Presupuesto mensual, gastos e inversión",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "Finanzas", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "Finanzas", statusBarStyle: "black-translucent" },
   formatDetection: { telephone: false },
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
@@ -18,8 +18,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover", // pantalla completa en iPhone (notch / Dynamic Island)
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f9f9f7" },
-    { media: "(prefers-color-scheme: dark)", color: "#0d0d0d" },
+    { media: "(prefers-color-scheme: light)", color: "#072146" },
+    { media: "(prefers-color-scheme: dark)", color: "#041634" },
   ],
 };
 

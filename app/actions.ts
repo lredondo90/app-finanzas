@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getUser } from "@/lib/data";
-import { parseWorkbook } from "@/lib/importExcel";
 import { createClient } from "@/lib/supabase/server";
 
 const str = (f: FormData, k: string) => {
@@ -303,6 +302,7 @@ export async function saveSettings(form: FormData) {
       user_id: user.id,
       year: numOrNull(form.get("year")) ?? new Date().getFullYear(),
       annual_fund_initial: numOrNull(form.get("annual_fund_initial")) ?? 0,
+      cutoff_day: Math.min(28, Math.max(1, numOrNull(form.get("cutoff_day")) ?? 25)),
       updated_at: new Date().toISOString(),
     }),
   );
@@ -337,70 +337,75 @@ export async function deletePaymentMethod(form: FormData) {
   done();
 }
 
-// ---------------- Importar Excel ----------------
-export async function importExcel(_: unknown, form: FormData): Promise<{ error?: string; ok?: string }> {
-  const file = form.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "Elige el archivo .xlsx" };
+// ---------------- Año nuevo ----------------
+/** Cambia el año que se ve en la app */
+export async function setActiveYear(form: FormData) {
   const { supabase, user } = await getUser();
-  try {
-    const p = await parseWorkbook(await file.arrayBuffer());
-    const uid = user.id;
+  const year = numOrNull(form.get("year"));
+  if (!year) return;
+  await check(supabase.from("settings").upsert({ user_id: user.id, year, updated_at: new Date().toISOString() }));
+  done();
+}
 
-    // Borra los datos actuales del usuario (la importación los sustituye)
-    for (const t of ["expenses", "budget_values", "budget_lines", "months", "categories", "payment_methods", "annual_expenses", "savings_extras", "savings_plans", "investments", "asset_prices", "bank_accounts", "net_worth_history"]) {
-      await check(supabase.from(t).delete().eq("user_id", uid));
-    }
-
-    await check(supabase.from("settings").upsert({ user_id: uid, year: p.year, annual_fund_initial: p.annualFundInitial }));
-
-    const { data: lines } = await check(
-      supabase.from("budget_lines").insert(p.lines.map((l) => ({ section: l.section, name: l.name, sort_order: l.sort_order, is_annual_fund: l.is_annual_fund }))).select(),
-    );
-    const values = p.lines.flatMap((l) => {
-      const id = lines!.find((x) => x.section === l.section && x.name === l.name)!.id;
-      return l.planned.map((planned, i) => ({ line_id: id, year: p.year, month: i + 1, planned, adjusted: l.adjusted[i] }));
-    });
-    if (values.length) await check(supabase.from("budget_values").insert(values));
-
-    if (p.closedMonths.length) await check(supabase.from("months").insert(p.closedMonths.map((month) => ({ year: p.year, month, closed: true }))));
-
-    const { data: cats } = await check(supabase.from("categories").insert(p.categories.map((name, i) => ({ name, sort_order: i }))).select());
-    if (p.paymentMethods.length) await check(supabase.from("payment_methods").insert(p.paymentMethods.map((name, i) => ({ name, sort_order: i }))));
-
-    if (p.expenses.length) {
-      await check(
-        supabase.from("expenses").insert(
-          p.expenses.map((e) => ({
-            date: e.date,
-            category_id: cats!.find((c) => c.name === e.category)?.id ?? null,
-            description: e.description, amount: e.amount, payment_method: e.payment_method, notes: e.notes,
-          })),
-        ),
-      );
-    }
-
-    if (p.annuals.length) await check(supabase.from("annual_expenses").insert(p.annuals.map((a, i) => ({ ...a, sort_order: i }))));
-
-    if (p.plans.length) {
-      const { data: plans } = await check(
-        supabase.from("savings_plans").insert(p.plans.map(({ extras: _e, ...pl }, i) => ({ ...pl, sort_order: i }))).select(),
-      );
-      const extras = p.plans.flatMap((pl, idx) =>
-        pl.extras.flatMap((amount, m) => (amount ? [{ plan_id: plans![idx].id, year: p.year, month: m + 1, amount }] : [])),
-      );
-      if (extras.length) await check(supabase.from("savings_extras").insert(extras));
-    }
-
-    if (p.investments.length) await check(supabase.from("investments").insert(p.investments));
-    if (p.prices.length) await check(supabase.from("asset_prices").insert(p.prices));
-    if (p.banks.length) await check(supabase.from("bank_accounts").insert(p.banks.map((b, i) => ({ ...b, sort_order: i }))));
-    if (p.history.length) await check(supabase.from("net_worth_history").insert(p.history));
-
-    revalidatePath("/", "layout");
-    return {
-      ok: `Importado: ${p.lines.length} conceptos, ${p.expenses.length} gastos, ${p.annuals.length} recibos anuales, ${p.plans.length} planes, ${p.banks.length} cuentas.`,
-    };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "Error importando el Excel" };
+/** Crea el año siguiente copiando lo previsto de cada concepto mes a mes (sin ajustes ni estados) y pasa a verlo */
+export async function createNextYear() {
+  const { supabase, user } = await getUser();
+  const { data: settings } = await supabase.from("settings").select("year").maybeSingle();
+  const from = settings?.year ?? new Date().getFullYear();
+  const to = from + 1;
+  const { count } = await supabase.from("budget_values").select("*", { count: "exact", head: true }).eq("year", to);
+  if (!count) {
+    const { data: values } = await check(supabase.from("budget_values").select("line_id, month, planned, adjusted").eq("year", from));
+    const rows = (values ?? []).map((v) => ({ line_id: v.line_id, year: to, month: v.month, planned: v.planned ?? 0 }));
+    for (let i = 0; i < rows.length; i += 500) await check(supabase.from("budget_values").insert(rows.slice(i, i + 500)));
   }
+  await check(supabase.from("settings").upsert({ user_id: user.id, year: to, updated_at: new Date().toISOString() }));
+  done();
+  redirect("/presupuesto?nuevo=" + to);
+}
+
+// ---------------- Mes contable ----------------
+/** Marca un concepto (nómina, recibo de fin de mes) para que cuente en el mes siguiente si llega tras el día de corte */
+export async function setLineNextMonth(lineId: string, value: boolean) {
+  const { supabase } = await getUser();
+  await check(supabase.from("budget_lines").update({ next_month: value }).eq("id", lineId));
+  done();
+}
+
+// ---------------- Patrimonio: cuentas a mano y fondos ----------------
+export async function setBankCounted(form: FormData) {
+  const { supabase } = await getUser();
+  await check(supabase.from("bank_accounts").update({ counted: form.get("counted") === "1" }).eq("id", String(form.get("id"))));
+  done();
+}
+
+export async function saveHolding(form: FormData) {
+  const { supabase } = await getUser();
+  const isin = (str(form, "isin") ?? "").toUpperCase();
+  if (!isin) return;
+  const price = numOrNull(form.get("price"));
+  const row: Record<string, unknown> = {
+    isin,
+    name: str(form, "name") ?? isin,
+    initial_units: numOrNull(form.get("initial_units")) ?? 0,
+    initial_value: numOrNull(form.get("initial_value")),
+    initial_cost: numOrNull(form.get("initial_cost")),
+    initial_date: str(form, "initial_date"),
+    match_text: str(form, "match_text"),
+    updated_at: new Date().toISOString(),
+  };
+  // Un precio escrito a mano se queda fijo hasta que lo borres (para fondos sin cotización pública)
+  if (form.has("price")) {
+    row.price = price;
+    row.price_manual = price != null;
+    row.price_date = price != null ? new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Madrid" }) : null;
+  }
+  await check(supabase.from("fund_holdings").upsert(row, { onConflict: "user_id,isin" }));
+  done();
+}
+
+export async function deleteHolding(form: FormData) {
+  const { supabase } = await getUser();
+  await check(supabase.from("fund_holdings").delete().eq("isin", String(form.get("isin"))));
+  done();
 }
