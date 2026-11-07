@@ -4,6 +4,9 @@ import type { Movement } from "./bankParse";
 
 const API = "https://api.enablebanking.com";
 
+/** El banco solo deja consultar unas 4 veces al día sin ti delante (norma PSD2) */
+export const RATE_LIMIT = "Límite diario del banco alcanzado: se volverá a sincronizar mañana.";
+
 export function enableBankingConfigured() {
   return !!process.env.ENABLE_BANKING_APP_ID && !!process.env.ENABLE_BANKING_PRIVATE_KEY;
 }
@@ -37,6 +40,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       const j = JSON.parse(text);
       msg = j.message ?? j.detail ?? j.error ?? text;
     } catch {}
+    if (res.status === 429) throw new Error(RATE_LIMIT);
     throw new Error(`Enable Banking ${res.status}: ${String(msg).slice(0, 300)}`);
   }
   return (text ? JSON.parse(text) : {}) as T;
@@ -88,6 +92,7 @@ export interface StoredAccount {
   label?: string | null;
   synced?: boolean; // ya se descargó su histórico inicial
   kind?: AccountKind; // sin definir = gastos
+  balance?: number | null; // saldo al conectar
 }
 
 /** Para qué usas la cuenta: de gastos (se revisa todo), de ahorro o de gastos anuales (no se cuentan como gasto del mes) */

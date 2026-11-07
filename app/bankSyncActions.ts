@@ -6,7 +6,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { type ImportRule, suggest } from "@/lib/bankSuggest";
 import { getUser } from "@/lib/data";
-import { type AccountKind, type StoredAccount, deleteSession, enableBankingConfigured, fetchTransactions, startAuth } from "@/lib/enableBanking";
+import { type AccountKind, RATE_LIMIT, type StoredAccount, deleteSession, enableBankingConfigured, fetchTransactions, startAuth } from "@/lib/enableBanking";
 import { type ConfirmRow, confirmBankImport } from "./importActions";
 
 const STATE_COOKIE = "eb_state";
@@ -59,7 +59,11 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
   const now = Date.now();
   const chosen = (c: { accounts: StoredAccount[] }) => c.accounts.filter((a) => a.sync === true);
   // Solo las conexiones en las que ya elegiste cuentas (si no, no se descarga nada)
-  const due = conns.filter((c) => chosen(c).length > 0).filter((c) => !opts.onlyIfStaleHours || !c.last_sync_at || now - new Date(c.last_sync_at).getTime() > opts.onlyIfStaleHours * 3600000);
+  // Si hoy ya se llegó al límite del banco, no se vuelve a intentar hasta mañana (cada intento gasta consultas)
+  const day = (d: Date | number) => new Date(d).toLocaleDateString("en-CA", { timeZone: "Europe/Madrid" });
+  const blockedToday = (c: { last_error: string | null; last_sync_at: string | null }) =>
+    c.last_error === RATE_LIMIT && !!c.last_sync_at && day(new Date(c.last_sync_at)) === day(now);
+  const due = conns.filter((c) => chosen(c).length > 0 && !blockedToday(c)).filter((c) => !opts.onlyIfStaleHours || !c.last_sync_at || now - new Date(c.last_sync_at).getTime() > opts.onlyIfStaleHours * 3600000);
   if (!due.length) return result;
 
   const [categories, lines, rules, expenses] = await Promise.all([

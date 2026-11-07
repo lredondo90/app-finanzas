@@ -1,5 +1,5 @@
 import { connectBank, disconnectBank, saveAccountSelection, syncNow } from "@/app/bankSyncActions";
-import { ACCOUNT_KINDS, type StoredAccount, enableBankingConfigured, fetchBalance, listAspsps } from "@/lib/enableBanking";
+import { ACCOUNT_KINDS, type StoredAccount, enableBankingConfigured, listAspsps } from "@/lib/enableBanking";
 
 interface Conn {
   id: string; aspsp_name: string; accounts: StoredAccount[];
@@ -18,12 +18,7 @@ const accountName = (a: StoredAccount) => {
 
 export default async function BankConnections({ connections, openId }: { connections: Conn[]; openId?: string }) {
   const configured = enableBankingConfigured();
-  // Saldos solo cuando toca elegir (el banco limita las consultas sin ti delante)
   const isOpen = (c: Conn) => c.id === openId || !c.accounts.some((a) => a.sync !== undefined);
-  const balances = new Map<string, number | null>();
-  if (configured) {
-    await Promise.all(connections.filter(isOpen).flatMap((c) => c.accounts.map(async (a) => balances.set(a.uid, await fetchBalance(a.uid)))));
-  }
   let banks: string[] = [];
   let listError: string | null = null;
   if (configured) {
@@ -85,7 +80,7 @@ export default async function BankConnections({ connections, openId }: { connect
                     )}
                     <ul className="divide-y divide-line">
                       {c.accounts.map((a) => {
-                        const bal = balances.get(a.uid);
+                        const bal = a.balance;
                         return (
                           <li key={a.uid} className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 py-2 sm:grid-cols-[auto_1fr_auto_12rem_11rem]">
                             <input type="checkbox" name={`sync:${a.uid}`} defaultChecked={a.sync === true} aria-label="Sincronizar"

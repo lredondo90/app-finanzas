@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { type StoredAccount, createSession } from "@/lib/enableBanking";
+import { type StoredAccount, createSession, fetchBalance } from "@/lib/enableBanking";
 import { createClient } from "@/lib/supabase/server";
 
 // Vuelta desde la web del banco tras dar permiso
@@ -35,6 +35,8 @@ export async function GET(request: NextRequest) {
       uid: a.uid, iban: a.account_id?.iban ?? null, name: a.name ?? a.details ?? null, product: a.product ?? null, currency: a.currency ?? null,
       ...(list.length === 1 ? { sync: true } : {}),
     }));
+    // Saldos ahora, que estás delante (sin ti el banco solo permite unas 4 consultas al día)
+    await Promise.all(accounts.map(async (a) => { a.balance = await fetchBalance(a.uid); }));
     const { data: created, error } = await supabase.from("bank_connections").insert({
       aspsp_name: s.aspsp?.name ?? expected.name,
       aspsp_country: s.aspsp?.country ?? "ES",

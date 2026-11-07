@@ -64,5 +64,5 @@ npm run dev                  # http://localhost:3000
 4. En Vercel añade `ENABLE_BANKING_APP_ID` (id de la aplicación) y `ENABLE_BANKING_PRIVATE_KEY` (contenido completo del `.pem`) y vuelve a desplegar.
 5. En la app: **Gastos → Importar extracto → Conectar banco**.
 
-La app sincroniza al abrirse (si hace más de 3 h), guarda sola lo que ya tiene aprendido y deja el resto en «por revisar».
+La app sincroniza al abrirse (si hace más de 6 h; el banco solo permite unas 4 consultas al día sin ti delante), guarda sola lo que ya tiene aprendido y deja el resto en «por revisar».
 El permiso del banco caduca cada 90–180 días; la app avisa y basta con volver a conectarlo.
