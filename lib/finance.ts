@@ -1,4 +1,5 @@
 // Cálculos que replican las fórmulas del Excel (hojas Mensual, Anuales, Planes, Cartera, Patrimonio)
+import { fundsSummary } from "./funds";
 import type { BudgetLine, Investment, YearData } from "./types";
 
 export const MONTHS = [
@@ -8,6 +9,15 @@ export const MONTHS = [
 export const MONTHS_SHORT = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 const n = (v: unknown) => (v == null || v === "" ? 0 : Number(v));
+
+/** Primer mes del año con datos reales (la app empieza en settings.start_date) */
+export function firstMonth(d: Pick<YearData, "settings" | "year">) {
+  const st = d.settings?.start_date;
+  if (!st) return 1;
+  const y = Number(st.slice(0, 4));
+  if (y > d.year) return 13;
+  return y === d.year ? Number(st.slice(5, 7)) : 1;
+}
 
 export function monthOf(date: string) {
   return Number(date.slice(5, 7));
@@ -239,8 +249,13 @@ export function plansSummary(d: YearData) {
 }
 
 export function netWorth(d: YearData) {
-  const cash = d.banks.reduce((s, b) => s + n(b.balance), 0);
-  const fondos = plansSummary(d).valor;
+  // Efectivo: saldos que llegan del banco + cuentas a mano que siguen contando
+  const synced = d.syncedAccounts.reduce((s, a) => s + n(a.balance), 0);
+  const manual = d.banks.filter((b) => b.counted !== false).reduce((s, b) => s + n(b.balance), 0);
+  const cash = synced + manual;
+  // Fondos: los de la cartera por ISIN si ya están dados de alta; si no, el valor de los planes
+  const funds = fundsSummary(d);
+  const fondos = funds.rows.length ? funds.total : plansSummary(d).valor;
   const cartera = portfolio(d).total.valor;
   const total = cash + fondos + cartera;
   // Gasto mensual medio previsto = total gastos fijos del año / 12 (Patrimonio!B29)
@@ -249,7 +264,7 @@ export function netWorth(d: YearData) {
     0,
   );
   const gastoMedio = fijosAnio / 12;
-  return { cash, fondos, cartera, total, gastoMedio, mesesReserva: gastoMedio === 0 ? null : cash / gastoMedio };
+  return { cash, synced, manual, fondos, funds, cartera, total, gastoMedio, mesesReserva: gastoMedio === 0 ? null : cash / gastoMedio };
 }
 
 const eur = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 });

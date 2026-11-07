@@ -6,7 +6,9 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { type ImportRule, suggest } from "@/lib/bankSuggest";
 import { getUser } from "@/lib/data";
-import { type AccountKind, RATE_LIMIT, type StoredAccount, deleteSession, enableBankingConfigured, fetchTransactions, startAuth } from "@/lib/enableBanking";
+import { firstSyncDate } from "@/lib/accounting";
+import { type AccountKind, RATE_LIMIT, type StoredAccount, deleteSession, enableBankingConfigured, fetchBalance, fetchTransactions, startAuth } from "@/lib/enableBanking";
+import { refreshFundPrices, saveNetWorthSnapshot } from "@/lib/wealth";
 import { type ConfirmRow, confirmBankImport } from "./importActions";
 
 const STATE_COOKIE = "eb_state";
@@ -64,27 +66,34 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
   const blockedToday = (c: { last_error: string | null; last_sync_at: string | null }) =>
     c.last_error === RATE_LIMIT && !!c.last_sync_at && day(new Date(c.last_sync_at)) === day(now);
   const due = conns.filter((c) => chosen(c).length > 0 && !blockedToday(c)).filter((c) => !opts.onlyIfStaleHours || !c.last_sync_at || now - new Date(c.last_sync_at).getTime() > opts.onlyIfStaleHours * 3600000);
-  if (!due.length) return result;
+  if (!due.length) { await refreshWealth(supabase); return result; }
 
-  const [categories, lines, rules, expenses] = await Promise.all([
+  const [categories, lines, rules, expenses, settingsRes] = await Promise.all([
     supabase.from("categories").select("*").order("sort_order"),
     supabase.from("budget_lines").select("*").order("sort_order"),
     supabase.from("import_rules").select("pattern, action, category_id, line_id"),
     supabase.from("expenses").select("*").order("date", { ascending: false }).limit(3000),
+    supabase.from("settings").select("start_date, cutoff_day").maybeSingle(),
   ]);
+  // La app empieza en start_date: solo se descarga desde el día siguiente al corte del mes anterior (la nómina de finales de mes)
+  const startDate: string | null = settingsRes.data?.start_date ?? null;
+  const minFrom = firstSyncDate(startDate, settingsRes.data?.cutoff_day ?? 25);
+  const clamp = (d: string) => (minFrom && d < minFrom ? minFrom : d);
+  const shifts = (lineId: string | null) => !!(lines.data ?? []).find((l) => l.id === lineId)?.next_month;
+  const today = day(now);
 
   for (const c of due) {
     try {
       if (c.valid_until && new Date(c.valid_until).getTime() < now) throw new Error("El permiso del banco ha caducado: vuelve a conectarlo.");
       const { data: last } = await supabase.from("bank_movements").select("date").eq("bank", c.aspsp_name).order("date", { ascending: false }).limit(1).maybeSingle();
-      const from: string = last?.date
+      const from: string = clamp(last?.date
         ? new Date(new Date(last.date).getTime() - 7 * 86400000).toISOString().slice(0, 10) // 7 días de margen
-        : new Date(now - 60 * 86400000).toISOString().slice(0, 10); // primera vez: 2 meses
-      // Una cuenta que se sincroniza por primera vez trae sus 2 últimos meses
-      const firstFrom = new Date(now - 60 * 86400000).toISOString().slice(0, 10);
+        : new Date(now - 60 * 86400000).toISOString().slice(0, 10)); // primera vez: 2 meses
+      // Una cuenta que se sincroniza por primera vez trae sus 2 últimos meses (nunca antes del inicio de la app)
+      const firstFrom = clamp(new Date(now - 60 * 86400000).toISOString().slice(0, 10));
       const perAccount = await Promise.all(chosen(c).map(async (a) => {
         const ms = await fetchTransactions(a.uid, a.synced ? from : firstFrom, c.aspsp_name, a.label || (a.iban ? `···${a.iban.slice(-4)}` : null));
-        return ms.map((m) => ({ m, kind: a.kind ?? "gastos" }));
+        return ms.map((m) => ({ m, kind: a.kind ?? "gastos", uid: a.uid }));
       }));
       const tagged = perAccount.flat();
       const movements = tagged.map((t) => t.m);
@@ -106,7 +115,9 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         if (kind === "gastos" || !r.include) return r;
         return { ...r, action: "ignorar" as const, category_id: null, line_id: null, learned: false,
           reason: kind === "ahorro" ? "Cuenta de ahorro: no cuenta como gasto del mes" : "Cuenta de gastos anuales: ya cuenta en Anuales" };
-      }).filter((r) => !existingKeys.has(r.key));
+      }).filter((r) => !existingKeys.has(r.key))
+        // Antes del inicio solo cuentan la nómina y los recibos que pasan al mes siguiente
+        .filter((r) => !startDate || r.date >= startDate || ((r.action === "ingreso" || r.action === "fijo") && shifts(r.line_id)));
 
       const auto = rows.filter((r) =>
         r.reason === "Ya importado desde un extracto" || // se registra como «no contar» para que no vuelva a salir
@@ -126,7 +137,19 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         await supabase.from("bank_pending").upsert(review.map((r) => ({ import_key: r.key, row: r })), { onConflict: "user_id,import_key" });
         result.pending += review.length;
       }
-      const accounts = (c.accounts as StoredAccount[]).map((a) => (a.sync ? { ...a, synced: true } : a));
+      // Saldo: el que trae el último movimiento si lo trae; si no, una consulta al día (el banco limita las consultas)
+      const accounts: StoredAccount[] = [];
+      for (const a of c.accounts as StoredAccount[]) {
+        if (!a.sync) { accounts.push(a); continue; }
+        const next: StoredAccount = { ...a, synced: true };
+        const fromTx = latestBalance(tagged.filter((t) => t.uid === a.uid).map((t) => t.m.raw));
+        if (fromTx != null) { next.balance = fromTx; next.balance_at = new Date().toISOString(); }
+        else if (!a.balance_at || day(new Date(a.balance_at)) !== today) {
+          const b = await fetchBalance(a.uid);
+          if (b != null) { next.balance = b; next.balance_at = new Date().toISOString(); }
+        }
+        accounts.push(next);
+      }
       await supabase.from("bank_connections").update({ accounts, last_sync_at: new Date().toISOString(), last_error: null }).eq("id", c.id);
       result.synced++;
     } catch (e) {
@@ -135,8 +158,29 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
       await supabase.from("bank_connections").update({ last_error: msg, last_sync_at: new Date().toISOString() }).eq("id", c.id);
     }
   }
+  await refreshWealth(supabase);
   revalidatePath("/", "layout");
   return result;
+}
+
+/** Precios de los fondos (una vez al día) y foto del patrimonio del mes; nunca impide la sincronización */
+async function refreshWealth(supabase: Awaited<ReturnType<typeof getUser>>["supabase"]) {
+  try {
+    await refreshFundPrices(supabase);
+    await saveNetWorthSnapshot(supabase);
+  } catch { /* sin precio hoy */ }
+}
+
+/** Saldo tras el movimiento más reciente, si el banco lo manda (balance_after_transaction) */
+function latestBalance(raws: unknown[]): number | null {
+  let best: { date: string; amount: number } | null = null;
+  for (const r of raws as { booking_date?: string; value_date?: string; balance_after_transaction?: { amount?: string | number } | null }[]) {
+    const amt = r?.balance_after_transaction?.amount;
+    const date = r?.booking_date ?? r?.value_date ?? "";
+    if (amt == null || !date) continue;
+    if (!best || date > best.date) best = { date, amount: Number(amt) };
+  }
+  return best ? best.amount : null;
 }
 
 /** Guarda qué cuentas de una conexión se sincronizan y el nombre que les pones */

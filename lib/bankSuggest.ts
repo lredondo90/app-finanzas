@@ -1,5 +1,5 @@
 // Sugiere qué hacer con cada movimiento del banco (gasto variable, ingreso/gasto fijo, ignorar…)
-import type { Movement } from "./bankParse";
+import type { Movement } from "./movement";
 import { mccLabel } from "./mcc";
 import type { BudgetLine, Category, Expense } from "./types";
 

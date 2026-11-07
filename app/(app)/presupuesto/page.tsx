@@ -1,8 +1,10 @@
 import Link from "next/link";
 import CellInput from "@/components/CellInput";
+import NextMonthToggle from "@/components/NextMonthToggle";
+import YearSwitcher from "@/components/YearSwitcher";
 import { addBudgetLine, deleteBudgetLine, fillPlannedYear, setBudgetCell } from "@/app/actions";
 import { MONTHS_SHORT, fmt0, isAdjusted, lineValue, monthSummary, plannedValue } from "@/lib/finance";
-import { loadYear } from "@/lib/data";
+import { getUser, loadYear } from "@/lib/data";
 import type { BudgetLine, Section } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -13,10 +15,14 @@ const SECTIONS: { key: Section; title: string; total: string }[] = [
   { key: "provision", title: "Provisión gastos variables", total: "Total provisión" },
 ];
 
-export default async function PresupuestoPage({ searchParams }: { searchParams: Promise<{ modo?: string }> }) {
+export default async function PresupuestoPage({ searchParams }: { searchParams: Promise<{ modo?: string; nuevo?: string }> }) {
   const sp = await searchParams;
   const modo = sp.modo === "fijo" ? "fijo" : "ajustes";
   const d = await loadYear();
+  const { supabase } = await getUser();
+  const { data: yearRows } = await supabase.from("budget_values").select("year").order("year").limit(5000);
+  const years = Array.from(new Set((yearRows ?? []).map((r) => r.year as number)));
+  const cutoff = d.settings?.cutoff_day ?? 25;
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
   const sums = months.map((m) => monthSummary(d, m));
   const yearTotal = (f: (i: number) => number) => months.reduce((s, m) => s + f(m - 1), 0);
@@ -29,6 +35,9 @@ export default async function PresupuestoPage({ searchParams }: { searchParams: 
           <div className="flex items-center gap-2">
             <span className="font-medium">{line.name}</span>
             {line.is_annual_fund && <Link href="/anuales" className="text-[10px] text-accent">auto</Link>}
+            {(line.section === "ingreso" || line.section === "fijo") && !line.is_annual_fund && (modo === "fijo" || line.next_month) && (
+              <NextMonthToggle lineId={line.id} value={!!line.next_month} cutoff={cutoff} />
+            )}
             {modo === "fijo" && !line.is_annual_fund && (
               <form action={deleteBudgetLine} className="ml-auto">
                 <input type="hidden" name="id" value={line.id} />
@@ -81,9 +90,11 @@ export default async function PresupuestoPage({ searchParams }: { searchParams: 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Presupuesto {d.year}</h1>
+          <div className="my-2"><YearSwitcher year={d.year} years={years} /></div>
+          {sp.nuevo && <p className="mb-2 rounded-xl bg-good/10 px-3 py-2 text-sm text-good">✓ Creado {sp.nuevo} con lo previsto del año anterior. Revisa el plan fijo por si algo cambia.</p>}
           <p className="text-sm text-ink2">
             {modo === "fijo"
-              ? "Plan fijo de cada mes. Edítalo solo si cambia el plan. La última columna copia un importe a los 12 meses."
+              ? `Plan fijo de cada mes. Edítalo solo si cambia el plan. La última columna copia un importe a los 12 meses. Con ↪, un ingreso o recibo que llega después del día ${cutoff} cuenta para el mes siguiente.`
               : "Escribe el importe REAL solo en el mes que se desvíe de lo fijo (vacío = vale lo fijo; un 0 también cuenta). En naranja, los meses ajustados."}
           </p>
         </div>

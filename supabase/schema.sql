@@ -282,3 +282,41 @@ create policy "own rows" on public.bank_connections for all to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 create policy "own rows" on public.bank_pending for all to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+-- ---------------------------------------------------------
+-- v5 · Mes contable, inicio de la app, patrimonio sincronizado y fondos por ISIN
+-- ---------------------------------------------------------
+-- Día de corte: lo que entra/sale después de este día en conceptos marcados cuenta para el mes siguiente
+alter table public.settings add column if not exists cutoff_day int not null default 25 check (cutoff_day between 1 and 28);
+-- Primer mes con datos reales (YYYY-MM-01); lo anterior se ignora
+alter table public.settings add column if not exists start_date date;
+-- Concepto (nómina, recibos de fin de mes) que cuenta para el mes siguiente si llega tras el día de corte
+alter table public.budget_lines add column if not exists next_month boolean not null default false;
+-- Cuentas a mano: si cuentan en el patrimonio (las que ya llegan del banco se desactivan)
+alter table public.bank_accounts add column if not exists counted boolean not null default true;
+
+-- Fondos/ETF por ISIN: participaciones de partida + las compras que llegan del banco
+create table if not exists public.fund_holdings (
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  isin text not null,
+  name text not null,
+  initial_units numeric(18,6) not null default 0,
+  initial_date date,
+  price numeric(18,6),
+  price_date date,
+  price_symbol text,
+  price_manual boolean not null default false,
+  -- Valor y coste de partida (lo que dice la app del broker ese día); con el primer precio se calculan las participaciones
+  initial_value numeric(12,2),
+  initial_cost numeric(12,2),
+  -- Para fondos cuyos movimientos no traen ISIN (p. ej. BBVA «QUALITY MEJORES IDEA»): texto que identifica sus aportaciones
+  match_text text,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, isin)
+);
+alter table public.fund_holdings enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'fund_holdings') then
+    create policy "own rows" on public.fund_holdings for all to authenticated
+      using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+  end if;
+end $$;

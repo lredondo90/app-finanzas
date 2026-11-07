@@ -1,6 +1,6 @@
 // Cliente mínimo de la API de Enable Banking (PSD2). Solo se usa en el servidor.
 import { createSign } from "crypto";
-import type { Movement } from "./bankParse";
+import type { Movement } from "./movement";
 import { mccLabel } from "./mcc";
 
 const API = "https://api.enablebanking.com";
@@ -93,7 +93,8 @@ export interface StoredAccount {
   label?: string | null;
   synced?: boolean; // ya se descargó su histórico inicial
   kind?: AccountKind; // sin definir = gastos
-  balance?: number | null; // saldo al conectar
+  balance?: number | null; // último saldo conocido
+  balance_at?: string | null; // cuándo se consultó
 }
 
 /** Para qué usas la cuenta: de gastos (se revisa todo), de ahorro o de gastos anuales (no se cuentan como gasto del mes) */

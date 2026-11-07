@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "./supabase/server";
+import type { StoredAccount } from "./enableBanking";
 import type { YearData } from "./types";
 
 export async function getUser() {
@@ -17,10 +18,12 @@ export async function loadYear(yearParam?: number): Promise<YearData> {
 
   const { data: settings } = await supabase.from("settings").select("*").maybeSingle();
   const year = yearParam ?? settings?.year ?? new Date().getFullYear();
-  const from = `${year}-01-01`;
+  // La app empieza en start_date (p. ej. 2026-11-01): lo anterior se ignora
+  const start: string | null = settings?.start_date ?? null;
+  const from = start && start > `${year}-01-01` ? start : `${year}-01-01`;
   const to = `${year + 1}-01-01`;
 
-  const [lines, values, months, categories, paymentMethods, expenses, annuals, plans, extras, investments, prices, banks, history, oneOffIncomes, bankMovs, recentExpenses] =
+  const [lines, values, months, categories, paymentMethods, expenses, annuals, plans, extras, investments, prices, banks, history, oneOffIncomes, bankMovs, recentExpenses, conns, holdings, fundMovs] =
     await Promise.all([
       supabase.from("budget_lines").select("*").order("sort_order"),
       supabase.from("budget_values").select("*").eq("year", year),
@@ -38,6 +41,9 @@ export async function loadYear(yearParam?: number): Promise<YearData> {
       supabase.from("one_off_incomes").select("*").gte("date", from).lt("date", to).order("date"),
       supabase.from("bank_movements").select("bank, date, created_at").order("created_at", { ascending: false }).limit(500),
       supabase.from("expenses").select("created_at, notes").order("created_at", { ascending: false }).limit(50),
+      supabase.from("bank_connections").select("id, aspsp_name, accounts").order("created_at"),
+      supabase.from("fund_holdings").select("*").order("name"),
+      supabase.from("bank_movements").select("date, description, amount").or("description.ilike.%quantity:%,description.ilike.%fondos de inversion%").order("date"),
     ]);
 
   // Última carga por banco (fecha de la importación y último movimiento incluido) y último gasto apuntado a mano
@@ -68,5 +74,15 @@ export async function loadYear(yearParam?: number): Promise<YearData> {
     history: history.data ?? [],
     oneOffIncomes: oneOffIncomes.data ?? [],
     loads,
+    syncedAccounts: (conns.data ?? []).flatMap((c) =>
+      ((c.accounts ?? []) as StoredAccount[]).filter((a) => a.sync === true).map((a) => ({
+        connectionId: c.id, bank: c.aspsp_name, uid: a.uid,
+        label: a.label || a.product || (a.iban ? `${c.aspsp_name} ···${a.iban.slice(-4)}` : c.aspsp_name),
+        iban: a.iban, kind: a.kind ?? "gastos", currency: a.currency,
+        balance: a.balance ?? null, balanceAt: a.balance_at ?? null,
+      }))),
+    holdings: (holdings.error ? [] : holdings.data ?? []).map((h) => ({ ...h, initial_units: Number(h.initial_units), price: h.price == null ? null : Number(h.price),
+      initial_value: h.initial_value == null ? null : Number(h.initial_value), initial_cost: h.initial_cost == null ? null : Number(h.initial_cost) })),
+    fundMovements: (fundMovs.data ?? []).map((m) => ({ ...m, amount: Number(m.amount) })),
   };
 }
