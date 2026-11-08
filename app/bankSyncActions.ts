@@ -52,9 +52,9 @@ export async function disconnectBank(form: FormData) {
  * Descarga los movimientos nuevos de todos los bancos conectados.
  * Lo que ya está aprendido (o es inversión/traspaso) se guarda solo; el resto queda «por revisar».
  */
-export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promise<{ synced: number; saved: number; pending: number; errors: string[] }> {
+export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promise<{ synced: number; saved: number; pending: number; errors: string[]; skipped: string[] }> {
   const { supabase } = await getUser();
-  const result = { synced: 0, saved: 0, pending: 0, errors: [] as string[] };
+  const result = { synced: 0, saved: 0, pending: 0, errors: [] as string[], skipped: [] as string[] };
   if (!enableBankingConfigured()) return result;
   const { data: conns } = await supabase.from("bank_connections").select("*");
   if (!conns?.length) return result;
@@ -66,6 +66,8 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
   const day = (d: Date | number) => new Date(d).toLocaleDateString("en-CA", { timeZone: "Europe/Madrid" });
   const blockedToday = (c: { last_error: string | null; last_sync_at: string | null }) =>
     c.last_error === RATE_LIMIT && !!c.last_sync_at && day(new Date(c.last_sync_at)) === day(now);
+  // Los que hoy ya llegaron al límite del banco no se consultan (se dice cuáles)
+  result.skipped = conns.filter((c) => chosen(c).length > 0 && blockedToday(c)).map((c) => c.aspsp_name);
   const due = conns.filter((c) => chosen(c).length > 0 && !blockedToday(c)).filter((c) => !opts.onlyIfStaleHours || !c.last_sync_at || now - new Date(c.last_sync_at).getTime() > opts.onlyIfStaleHours * 3600000);
   if (!due.length) { await refreshWealth(supabase); return result; }
 

@@ -1,4 +1,5 @@
-import { connectBank, disconnectBank, saveAccountSelection, syncNow } from "@/app/bankSyncActions";
+import { connectBank, disconnectBank, saveAccountSelection } from "@/app/bankSyncActions";
+import SyncButton from "./SyncButton";
 import { ACCOUNT_KINDS, type StoredAccount, enableBankingConfigured, listAspsps } from "@/lib/enableBanking";
 import type { BudgetLine } from "@/lib/types";
 
@@ -36,7 +37,7 @@ export default async function BankConnections({ connections, openId, lines = [] 
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <div className="label">Bancos conectados</div>
         {connections.length > 0 && (
-          <form action={syncNow}><button className="btn-ghost py-1.5">↻ Sincronizar ahora</button></form>
+          <SyncButton />
         )}
       </div>
       <p className="mb-3 text-sm text-ink2">
