@@ -253,6 +253,8 @@ export function netWorth(d: YearData) {
   const synced = d.syncedAccounts.reduce((s, a) => s + n(a.balance), 0);
   const manual = d.banks.filter((b) => b.counted !== false).reduce((s, b) => s + n(b.balance), 0);
   const cash = synced + manual;
+  // Cuentas conjuntas (con tu mujer): cuentan enteras en el total, y aparte para ver lo tuyo
+  const joint = d.syncedAccounts.filter((a) => a.kind === "conjunta").reduce((s, a) => s + n(a.balance), 0);
   // Fondos: los de la cartera por ISIN si ya están dados de alta; si no, el valor de los planes
   const funds = fundsSummary(d);
   const fondos = funds.rows.length ? funds.total : plansSummary(d).valor;
@@ -264,7 +266,7 @@ export function netWorth(d: YearData) {
     0,
   );
   const gastoMedio = fijosAnio / 12;
-  return { cash, synced, manual, fondos, funds, cartera, total, gastoMedio, mesesReserva: gastoMedio === 0 ? null : cash / gastoMedio };
+  return { cash, synced, manual, joint, mine: total - joint, fondos, funds, cartera, total, gastoMedio, mesesReserva: gastoMedio === 0 ? null : cash / gastoMedio };
 }
 
 const eur = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: 2, maximumFractionDigits: 2 });

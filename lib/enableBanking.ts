@@ -99,15 +99,19 @@ export interface StoredAccount {
   house_budget?: number | null;
   balance?: number | null; // último saldo conocido
   balance_at?: string | null; // cuándo se consultó
+  /** Cuenta de recibos: concepto fijo al que van todas sus salidas (p. ej. HIPOTECA TC) */
+  bill_line_id?: string | null;
 }
 
 /**
  * Para qué usas la cuenta: de gastos (se revisa todo), de ahorro o de gastos anuales (no se cuentan como gasto del mes)
  * o conjunta (de casa, con tu mujer: sus movimientos van a la pantalla Casa y nunca a tus gastos)
  */
-export type AccountKind = "gastos" | "ahorro" | "anuales" | "conjunta";
+export type AccountKind = "gastos" | "directa" | "recibos" | "ahorro" | "anuales" | "conjunta";
 export const ACCOUNT_KINDS: { value: AccountKind; label: string }[] = [
   { value: "gastos", label: "Gastos del día a día" },
+  { value: "directa", label: "Gastos sin revisar (todo a Otros)" },
+  { value: "recibos", label: "Recibos de un concepto fijo" },
   { value: "ahorro", label: "Ahorro" },
   { value: "anuales", label: "Gastos anuales" },
   { value: "conjunta", label: "Conjunta (casa)" },
@@ -165,8 +169,8 @@ const iban4 = (a?: { iban?: string | null; other?: { identification?: string | n
 };
 
 /** Movimientos de una cuenta desde una fecha (sigue la paginación) */
-export async function fetchTransactions(accountUid: string, dateFrom: string, bank: string, account: string | null = null): Promise<(Movement & { externalId: string | null })[]> {
-  const out: (Movement & { externalId: string | null })[] = [];
+export async function fetchTransactions(accountUid: string, dateFrom: string, bank: string, account: string | null = null, includePending = false): Promise<(Movement & { externalId: string | null; pending?: boolean })[]> {
+  const out: (Movement & { externalId: string | null; pending?: boolean })[] = [];
   let key: string | null = null;
   const seen = new Set<string>();
   for (let page = 0; page < 50; page++) {
@@ -174,7 +178,9 @@ export async function fetchTransactions(accountUid: string, dateFrom: string, ba
     if (key) qs.set("continuation_key", key);
     const r: { transactions?: EbTransaction[]; continuation_key?: string | null } = await call("GET", `/accounts/${accountUid}/transactions?${qs}`);
     for (const t of r.transactions ?? []) {
-      if (t.status && t.status !== "BOOK") continue; // solo movimientos contabilizados
+      // Solo movimientos contabilizados (en las cuentas «sin revisar», también los pendientes, para verlos ya)
+      const pending = !!t.status && t.status !== "BOOK";
+      if (pending && !(includePending && t.status === "PDNG")) continue;
       const date = (t.booking_date ?? t.value_date ?? t.transaction_date ?? "").slice(0, 10);
       const raw = Math.abs(Number(t.transaction_amount?.amount ?? 0));
       if (!date || !raw) continue;
@@ -203,7 +209,9 @@ export async function fetchTransactions(accountUid: string, dateFrom: string, ba
         type: codeText,
         mcc,
         amount: Math.round(amount * 100) / 100,
-        externalId: t.entry_reference || t.transaction_id || null,
+        externalId: pending ? null : t.entry_reference || t.transaction_id || null,
+        ...(pending ? { pending: true } : {}),
+        
         raw: t,
       });
     }

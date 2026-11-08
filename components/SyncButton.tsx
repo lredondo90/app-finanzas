@@ -7,7 +7,7 @@ import { syncBanks } from "@/app/bankSyncActions";
 type Result = Awaited<ReturnType<typeof syncBanks>>;
 
 /** Botón «Sincronizar ahora»: dice que está trabajando (puede tardar un minuto) y el resultado justo debajo */
-export default function SyncButton() {
+export default function SyncButton({ compact }: { compact?: boolean } = {}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [result, setResult] = useState<Result | null>(null);
@@ -27,6 +27,17 @@ export default function SyncButton() {
     });
   };
 
+  if (compact) {
+    const msg = failed ? `⚠ ${failed}` : result ? (result.synced ? `✓ ${result.saved} nuevos` : result.skipped.length ? "Sin consultas hoy" : "Sin cambios") : null;
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <button type="button" onClick={run} disabled={pending} className="hero-chip inline-flex items-center gap-1.5 py-1.5 disabled:opacity-70" aria-label="Sincronizar con el banco">
+          <span className={`inline-block ${pending ? "animate-spin" : ""}`}>↻</span>{pending ? "Sincronizando…" : "Sincronizar"}
+        </button>
+        {msg && !pending && <span className="text-[11px] text-white/70">{msg}</span>}
+      </div>
+    );
+  }
   return (
     <div className="w-full sm:w-auto">
       <button type="button" onClick={run} disabled={pending} className="btn-ghost w-full py-1.5 disabled:opacity-60 sm:w-auto">

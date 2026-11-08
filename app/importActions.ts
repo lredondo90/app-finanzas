@@ -139,3 +139,27 @@ export async function deleteImportRule(form: FormData) {
   await supabase.from("import_rules").delete().eq("pattern", String(form.get("pattern")));
   revalidatePath("/importar");
 }
+
+/** Cambia qué es un movimiento ya guardado de una cuenta «sin revisar»: otra categoría, inversión o no contar */
+export async function reclassifyMovement(form: FormData) {
+  const { supabase } = await getUser();
+  const id = String(form.get("id"));
+  const to = String(form.get("to") ?? "");
+  const { data: m } = await supabase.from("bank_movements").select("*").eq("id", id).maybeSingle();
+  if (!m) return;
+  if (to.startsWith("cat:")) {
+    const category_id = to.slice(4);
+    if (m.expense_id) await supabase.from("expenses").update({ category_id }).eq("id", m.expense_id);
+    else {
+      const { data: exp } = await supabase.from("expenses").insert({
+        date: m.date, category_id, description: m.description, amount: -Number(m.amount), notes: `Importado de ${m.bank}`,
+      }).select("id").single();
+      await supabase.from("bank_movements").update({ expense_id: exp?.id ?? null }).eq("id", id);
+    }
+    await supabase.from("bank_movements").update({ action: "variable", category_id }).eq("id", id);
+  } else if (to === "inversion" || to === "ignorar") {
+    if (m.expense_id) await supabase.from("expenses").delete().eq("id", m.expense_id);
+    await supabase.from("bank_movements").update({ action: to, category_id: null, expense_id: null }).eq("id", id);
+  }
+  revalidatePath("/", "layout");
+}
