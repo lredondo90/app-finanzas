@@ -7,6 +7,7 @@ import { getUser } from "@/lib/data";
 export const dynamic = "force-dynamic";
 
 const HINT: Record<string, string> = {
+  "/casa": "Cuentas conjuntas: aportaciones, gastos de casa y presupuesto",
   "/ingresos": "Nómina, alquileres y recibos del mes",
   "/anuales": "Seguros, IBI y lo que pagas una vez al año",
   "/inversion": "Aportaciones a planes y operaciones",

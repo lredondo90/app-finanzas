@@ -1,5 +1,6 @@
 import { connectBank, disconnectBank, saveAccountSelection, syncNow } from "@/app/bankSyncActions";
 import { ACCOUNT_KINDS, type StoredAccount, enableBankingConfigured, listAspsps } from "@/lib/enableBanking";
+import type { BudgetLine } from "@/lib/types";
 
 interface Conn {
   id: string; aspsp_name: string; accounts: StoredAccount[];
@@ -13,10 +14,11 @@ const eur = (v: number) => v.toLocaleString("es-ES", { style: "currency", curren
 const ibanShort = (iban: string | null) => (iban ? `${iban.slice(0, 4)} ···· ${iban.slice(-4)}` : null);
 const accountName = (a: StoredAccount) => {
   const n = a.label || ibanShort(a.iban) || a.name || "Cuenta";
-  return a.kind && a.kind !== "gastos" ? `${n} (${a.kind === "ahorro" ? "ahorro" : "anuales"})` : n;
+  const kind: Record<string, string> = { ahorro: "ahorro", anuales: "anuales", conjunta: "conjunta" };
+  return a.kind && kind[a.kind] ? `${n} (${kind[a.kind]})` : n;
 };
 
-export default async function BankConnections({ connections, openId }: { connections: Conn[]; openId?: string }) {
+export default async function BankConnections({ connections, openId, lines = [] }: { connections: Conn[]; openId?: string; lines?: BudgetLine[] }) {
   const configured = enableBankingConfigured();
   const isOpen = (c: Conn) => c.id === openId || !c.accounts.some((a) => a.sync !== undefined);
   let banks: string[] = [];
@@ -97,6 +99,17 @@ export default async function BankConnections({ connections, openId }: { connect
                             <select className="input col-start-2 sm:col-start-auto" name={`kind:${a.uid}`} defaultValue={a.kind ?? "gastos"} aria-label="Tipo de cuenta">
                               {ACCOUNT_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
                             </select>
+                            <div className="joint-only [grid-column:2/-1] gap-2 rounded-lg bg-line/30 p-2 sm:grid-cols-2">
+                              <label className="text-xs text-ink2">Tu transferencia a esta cuenta cuenta en tu presupuesto como
+                                <select className="input mt-1" name={`line:${a.uid}`} defaultValue={a.contribution_line_id ?? ""}>
+                                  <option value="">— No contar mi aportación —</option>
+                                  {lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                </select>
+                              </label>
+                              <label className="text-xs text-ink2">Presupuesto de gastos de casa al mes (opcional)
+                                <input className="input tnum mt-1" name={`budget:${a.uid}`} inputMode="decimal" defaultValue={a.house_budget ?? ""} placeholder="p. ej. 600" />
+                              </label>
+                            </div>
                           </li>
                         );
                       })}
@@ -104,6 +117,7 @@ export default async function BankConnections({ connections, openId }: { connect
                     <p className="text-xs text-muted">
                       De gastos: cada movimiento se apunta o te lo dejo para revisar. De ahorro y de gastos anuales: sus movimientos se guardan
                       como «no contar», para que ni el dinero que apartas ni los recibos anuales (que ya cuentan en Anuales) salgan como gasto del mes.
+                      Conjunta: lo que pasa en ella va a la pantalla Casa y nunca a tus gastos; lo que tú le transfieres cuenta en el concepto que elijas.
                     </p>
                     <button className="btn">Guardar selección</button>
                   </form>

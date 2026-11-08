@@ -18,6 +18,8 @@ export interface ConfirmRow {
   category_id: string | null;
   line_id: string | null;
   remember: boolean;
+  accountUid?: string | null; // cuenta de la que viene (conexión directa)
+  house?: boolean; // de una cuenta conjunta: se guarda con su categoría para Casa
 }
 
 /** Paso 2: guardar lo revisado */
@@ -33,21 +35,26 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
     const cutoff: number = settings?.cutoff_day ?? 25;
     const shifts = (lineId: string) => !!(lineFlags ?? []).find((l) => l.id === lineId)?.next_month;
 
+    let withAccount = true; // si la base de datos aún no tiene la columna account_uid, se guarda sin ella
     for (const r of rows) {
-      const { data: inserted, error } = await supabase
-        .from("bank_movements")
-        .insert({
-          bank: r.bank, import_key: r.key, date: r.date, description: r.description, detail: r.detail,
-          amount: r.amount, action: r.action,
-          category_id: r.action === "variable" ? r.category_id : null,
-          line_id: r.action === "fijo" || r.action === "ingreso" ? r.line_id : null,
-        })
-        .select("id")
-        .single();
+      const base = {
+        bank: r.bank, import_key: r.key, date: r.date, description: r.description, detail: r.detail,
+        amount: r.amount, action: r.action,
+        category_id: r.action === "variable" || r.house ? r.category_id : null,
+        line_id: r.action === "fijo" || r.action === "ingreso" ? r.line_id : null,
+      };
+      const insert = (withId: boolean) => supabase.from("bank_movements")
+        .insert((withId && r.accountUid ? { ...base, account_uid: r.accountUid } : base) as Record<string, unknown>).select("id").single();
+      let { data: inserted, error } = await insert(withAccount);
+      if (error && withAccount && /account_uid/.test(error.message)) {
+        withAccount = false;
+        ({ data: inserted, error } = await insert(false));
+      }
       if (error) {
         if (error.code === "23505") continue; // ya importado
         throw new Error(error.message);
       }
+      if (!inserted) continue;
 
       if (r.action === "variable") {
         const { data: exp, error: e2 } = await supabase.from("expenses").insert({

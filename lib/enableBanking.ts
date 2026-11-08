@@ -93,17 +93,26 @@ export interface StoredAccount {
   label?: string | null;
   synced?: boolean; // ya se descargó su histórico inicial
   kind?: AccountKind; // sin definir = gastos
+  /** Cuenta conjunta: concepto fijo de tu presupuesto en el que cuentan tus transferencias a ella (p. ej. CASA N) */
+  contribution_line_id?: string | null;
+  /** Cuenta conjunta: presupuesto mensual de gastos de casa (p. ej. 600 € en Revolut entre los dos) */
+  house_budget?: number | null;
   balance?: number | null; // último saldo conocido
   balance_at?: string | null; // cuándo se consultó
 }
 
-/** Para qué usas la cuenta: de gastos (se revisa todo), de ahorro o de gastos anuales (no se cuentan como gasto del mes) */
-export type AccountKind = "gastos" | "ahorro" | "anuales";
+/**
+ * Para qué usas la cuenta: de gastos (se revisa todo), de ahorro o de gastos anuales (no se cuentan como gasto del mes)
+ * o conjunta (de casa, con tu mujer: sus movimientos van a la pantalla Casa y nunca a tus gastos)
+ */
+export type AccountKind = "gastos" | "ahorro" | "anuales" | "conjunta";
 export const ACCOUNT_KINDS: { value: AccountKind; label: string }[] = [
   { value: "gastos", label: "Gastos del día a día" },
   { value: "ahorro", label: "Ahorro" },
   { value: "anuales", label: "Gastos anuales" },
+  { value: "conjunta", label: "Conjunta (casa)" },
 ];
+export const isAccountKind = (v: string): v is AccountKind => ACCOUNT_KINDS.some((k) => k.value === v);
 
 /** Saldo actual de una cuenta (para reconocerla al elegir cuáles sincronizar) */
 export async function fetchBalance(accountUid: string): Promise<number | null> {
@@ -182,9 +191,12 @@ export async function fetchTransactions(accountUid: string, dateFrom: string, ba
       const candidates = [counterpart, remit, note, otherAcc && agent ? `${agent} (${otherAcc})` : otherAcc, codeText, mccLabel(mcc)].filter(Boolean) as string[];
       const description = candidates[0] ?? (amount < 0 ? "Pago sin descripción" : "Ingreso sin descripción");
       const detail = [...new Set(candidates.slice(1))].filter((x) => x !== codeText).join(" · ") || null;
+      const counter = amount < 0 ? t.creditor_account : t.debtor_account;
       out.push({
         bank,
         account,
+        accountUid,
+        counterIban: (counter?.iban ?? counter?.other?.identification ?? null)?.replace(/\s/g, "").toUpperCase() || null,
         date,
         description,
         detail,

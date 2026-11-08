@@ -7,7 +7,8 @@ import { redirect } from "next/navigation";
 import { type ImportRule, suggest } from "@/lib/bankSuggest";
 import { getUser } from "@/lib/data";
 import { firstSyncDate } from "@/lib/accounting";
-import { type AccountKind, RATE_LIMIT, type StoredAccount, deleteSession, enableBankingConfigured, fetchBalance, fetchTransactions, startAuth } from "@/lib/enableBanking";
+import { RATE_LIMIT, type StoredAccount, deleteSession, enableBankingConfigured, fetchBalance, fetchTransactions, isAccountKind, startAuth } from "@/lib/enableBanking";
+import { jointAccounts, matchContribution } from "@/lib/house";
 import { refreshFundPrices, saveNetWorthSnapshot } from "@/lib/wealth";
 import { type ConfirmRow, confirmBankImport } from "./importActions";
 
@@ -82,6 +83,21 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
   const shifts = (lineId: string | null) => !!(lines.data ?? []).find((l) => l.id === lineId)?.next_month;
   const today = day(now);
 
+  // Cuentas conjuntas (de todas las conexiones): sus movimientos van a Casa y tus transferencias a ellas son tu aportación
+  const joint = jointAccounts(conns);
+  const jointUids = new Set(joint.map((j) => j.uid));
+  // Entradas recientes en cuentas conjuntas ya guardadas, para reconocer tu transferencia aunque llegue en otra sincronización
+  const jointIn: { accountUid: string; date: string; amount: number }[] = [];
+  if (joint.length) {
+    const { data, error } = await supabase.from("bank_movements").select("account_uid, date, amount")
+      .in("account_uid", [...jointUids]).gt("amount", 0).gte("date", new Date(now - 75 * 86400000).toISOString().slice(0, 10));
+    if (!error) for (const r of data ?? []) jointIn.push({ accountUid: r.account_uid, date: r.date, amount: Number(r.amount) });
+  }
+
+  // Primero los bancos con cuentas conjuntas, para que lo que entra en ellas ya se conozca al revisar tus cuentas
+  const hasJoint = (c: { accounts: StoredAccount[] }) => c.accounts.some((a) => a.sync === true && a.kind === "conjunta");
+  due.sort((a, b) => Number(hasJoint(b)) - Number(hasJoint(a)));
+
   for (const c of due) {
     try {
       if (c.valid_until && new Date(c.valid_until).getTime() < now) throw new Error("El permiso del banco ha caducado: vuelve a conectarlo.");
@@ -97,6 +113,9 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
       }));
       const tagged = perAccount.flat();
       const movements = tagged.map((t) => t.m);
+      // Lo que entra en las cuentas conjuntas en esta descarga también sirve para emparejar tus transferencias
+      const incoming = jointIn;
+      incoming.push(...tagged.filter((t) => t.kind === "conjunta" && t.m.amount > 0).map((t) => ({ accountUid: t.uid, date: t.m.date, amount: t.m.amount })));
 
       const keysNeeded = movements.filter((m) => m.externalId).map((m) => `${m.bank}|id|${m.externalId}`);
       const existingKeys = new Set<string>();
@@ -112,7 +131,21 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
       }).map((r, i) => {
         // Cuentas de ahorro y de gastos anuales: sus movimientos no son gasto ni ingreso del mes
         const kind = tagged[i].kind;
-        if (kind === "gastos" || !r.include) return r;
+        if (!r.include) return r;
+        // Cuenta conjunta: nunca es gasto tuyo; se guarda con su categoría para la pantalla Casa
+        if (kind === "conjunta") {
+          return { ...r, action: "ignorar" as const, house: true, category_id: r.action === "variable" ? r.category_id : null, line_id: null, learned: false,
+            reason: "Cuenta conjunta: cuenta en Casa, no en tus gastos" };
+        }
+        if (kind === "gastos") {
+          // Tu transferencia a una cuenta conjunta: cuenta como el concepto fijo elegido (p. ej. CASA N)
+          const j = jointUids.size && !jointUids.has(tagged[i].uid) ? matchContribution(r, joint, incoming) : null;
+          if (j?.contributionLineId) {
+            return { ...r, action: "fijo" as const, line_id: j.contributionLineId, category_id: null, learned: false,
+              reason: `Tu aportación a ${j.label}` };
+          }
+          return r;
+        }
         return { ...r, action: "ignorar" as const, category_id: null, line_id: null, learned: false,
           reason: kind === "ahorro" ? "Cuenta de ahorro: no cuenta como gasto del mes" : "Cuenta de gastos anuales: ya cuenta en Anuales" };
       }).filter((r) => !existingKeys.has(r.key))
@@ -121,7 +154,7 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
 
       const auto = rows.filter((r) =>
         r.reason === "Ya importado desde un extracto" || // se registra como «no contar» para que no vuelva a salir
-        (r.include && (r.learned || r.action === "inversion" || (r.action === "ignorar" && /entre tus cuentas|^Cuenta de /.test(r.reason)))));
+        (r.include && (r.learned || r.action === "inversion" || (r.action === "ignorar" && /entre tus cuentas|^Cuenta (de|conjunta)/.test(r.reason)) || r.reason.startsWith("Tu aportación a "))));
       const review = rows.filter((r) => !auto.includes(r));
 
       if (auto.length) {
@@ -193,8 +226,14 @@ export async function saveAccountSelection(form: FormData) {
     ...a,
     sync: form.get(`sync:${a.uid}`) === "on",
     label: String(form.get(`label:${a.uid}`) ?? "").trim() || null,
-    kind: (["gastos", "ahorro", "anuales"].includes(String(form.get(`kind:${a.uid}`))) ? String(form.get(`kind:${a.uid}`)) : "gastos") as AccountKind,
-  }));
+    kind: isAccountKind(String(form.get(`kind:${a.uid}`))) ? (String(form.get(`kind:${a.uid}`)) as StoredAccount["kind"]) : "gastos",
+  })).map((a) => {
+    // Solo las conjuntas llevan concepto de aportación y presupuesto de casa
+    const budget = Number(String(form.get(`budget:${a.uid}`) ?? "").replace(",", "."));
+    return a.kind === "conjunta"
+      ? { ...a, contribution_line_id: String(form.get(`line:${a.uid}`) ?? "") || null, house_budget: budget > 0 ? Math.round(budget * 100) / 100 : null }
+      : { ...a, contribution_line_id: null, house_budget: null };
+  });
   await supabase.from("bank_connections").update({ accounts }).eq("id", id);
   revalidatePath("/", "layout");
   redirect(`/importar?cuentas_ok=${accounts.filter((a) => a.sync).length}`);

@@ -96,3 +96,6 @@ table.data td {
 }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
+/* Campos de cuenta conjunta: solo se ven cuando el tipo elegido es «Conjunta (casa)» */
+.joint-only { display: none; }
+li:has(option[value="conjunta"]:checked) .joint-only { display: grid; }

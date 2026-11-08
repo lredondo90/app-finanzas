@@ -21,6 +21,7 @@ export interface SuggestedRow extends Movement {
   include: boolean;
   reason: string; // por qué se sugiere
   learned: boolean; // viene de una regla aprendida
+  house?: boolean; // movimiento de una cuenta conjunta (pantalla Casa)
 }
 
 export const norm = (s: string) =>
