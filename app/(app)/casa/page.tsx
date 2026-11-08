@@ -4,14 +4,12 @@ import Hero from "@/components/Hero";
 import MonthPicker, { currentMonth } from "@/components/MonthPicker";
 import { categoryIcon } from "@/lib/categoryIcon";
 import { getUser, loadYear } from "@/lib/data";
-import type { StoredAccount } from "@/lib/enableBanking";
 import { MONTHS, firstMonth, fmt, fmt0 } from "@/lib/finance";
-import { type HouseMovement, houseGroup, internalTransfers, jointAccounts } from "@/lib/house";
+import { type HouseMovement, houseGroup } from "@/lib/house";
+import { loadHouseMonth } from "@/lib/houseData";
 
 export const dynamic = "force-dynamic";
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const shiftDays = (date: string, days: number) => new Date(new Date(`${date}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
 const dayShort = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("es-ES", { day: "numeric", month: "short" }).replace(".", "");
 /** Nombre de quien aporta, sin «traspaso desde cuenta…» */
 const who = (m: HouseMovement) => m.description.replace(/\s+/g, " ").trim();
@@ -21,25 +19,9 @@ export default async function CasaPage({ searchParams }: { searchParams: Promise
   const d = await loadYear();
   const month = currentMonth(sp.m, d.year, firstMonth(d));
   const { supabase } = await getUser();
-  const { data: conns } = await supabase.from("bank_connections").select("aspsp_name, accounts").order("created_at");
-  const joint = jointAccounts((conns ?? []) as { aspsp_name: string; accounts: StoredAccount[] }[]);
+  const { joint, from, to, movs, internal, missingColumn, budgets } = await loadHouseMonth(supabase, d.year, month);
   const balances = new Map(d.syncedAccounts.map((a) => [a.uid, a]));
   const total = joint.reduce((s, j) => s + Number(balances.get(j.uid)?.balance ?? 0), 0);
-
-  const from = `${d.year}-${pad(month)}-01`;
-  const to = month === 12 ? `${d.year + 1}-01-01` : `${d.year}-${pad(month + 1)}-01`;
-  let movs: HouseMovement[] = [];
-  let missingColumn = false;
-  if (joint.length) {
-    // Con 3 días de margen a cada lado para reconocer los traspasos entre cuentas de casa que cruzan de mes
-    const { data, error } = await supabase.from("bank_movements")
-      .select("id, account_uid, date, description, detail, amount, category_id")
-      .in("account_uid", joint.map((j) => j.uid)).gte("date", shiftDays(from, -3)).lt("date", shiftDays(to, 3))
-      .order("date", { ascending: false });
-    if (error) missingColumn = /account_uid/.test(error.message);
-    movs = (data ?? []).map((m) => ({ ...m, amount: Number(m.amount) }));
-  }
-  const internal = internalTransfers(movs);
   const inMonth = movs.filter((m) => m.date >= from && m.date < to);
   const real = inMonth.filter((m) => !internal.has(m.id));
   const entradas = real.filter((m) => m.amount > 0);
@@ -82,15 +64,14 @@ export default async function CasaPage({ searchParams }: { searchParams: Promise
       )}
 
       {/* Presupuesto de casa (p. ej. Revolut: 600 € al mes entre los dos) */}
-      {joint.filter((j) => j.budget).map((j) => {
-        const spent = -gastos.filter((m) => m.account_uid === j.uid).reduce((s, m) => s + m.amount, 0);
-        const left = j.budget! - spent;
-        const pct = Math.min(1, spent / j.budget!);
+      {budgets.map(({ account: j, budget, spent }) => {
+        const left = budget - spent;
+        const pct = Math.min(1, spent / budget);
         return (
           <div key={j.uid} className="card">
             <div className="flex items-baseline justify-between gap-2">
               <h2 className="section-title">Presupuesto de casa · {j.label}</h2>
-              <span className="tnum text-sm text-ink2">{fmt0(spent)} de {fmt0(j.budget)}</span>
+              <span className="tnum text-sm text-ink2">{fmt0(spent)} de {fmt0(budget)}</span>
             </div>
             <div className="mt-3 h-2 rounded-full bg-line/70">
               <div className={`h-2 rounded-full ${left < 0 ? "bg-bad" : "bg-accent"}`} style={{ width: `${pct * 100}%` }} />

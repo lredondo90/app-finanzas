@@ -9,6 +9,7 @@ import YearChart from "@/components/YearChart";
 import { windowLabel } from "@/lib/accounting";
 import { MONTHS, MONTHS_SHORT, firstMonth, fmt, fmt0, monthOf, monthSummary, netWorth } from "@/lib/finance";
 import { getUser, loadYear } from "@/lib/data";
+import { loadHouseMonth } from "@/lib/houseData";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +38,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   }
 
   const { supabase } = await getUser();
-  const [{ count: pendingCount = 0 }, { count: connCount = 0 }] = await Promise.all([
+  const [{ count: pendingCount = 0 }, { count: connCount = 0 }, house] = await Promise.all([
     supabase.from("bank_pending").select("*", { count: "exact", head: true }),
     supabase.from("bank_connections").select("*", { count: "exact", head: true }),
+    loadHouseMonth(supabase, d.year, month),
   ]);
   const s = monthSummary(d, month);
   const year = Array.from({ length: 12 }, (_, i) => monthSummary(d, i + 1));
@@ -88,6 +90,38 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <span className="text-accent">Revisar ›</span>
         </Link>
       )}
+
+      {/* Presupuesto de casa (cuentas conjuntas con presupuesto, p. ej. Revolut 600 €) */}
+      {house.budgets.map(({ account, budget, spent }) => {
+        const left = budget - spent;
+        const now = new Date();
+        const isCurrent = now.getFullYear() === d.year && now.getMonth() + 1 === month;
+        const days = new Date(d.year, month, 0).getDate();
+        const dia = now.getDate();
+        const expected = isCurrent ? (budget * dia) / days : null;
+        const tone = left < 0 || (expected != null && spent > expected) ? "bad" : "accent";
+        return (
+          <Link key={account.uid} href={`/casa?m=${month}`} className="card block">
+            <div className="flex items-center justify-between">
+              <h2 className="section-title">Casa · {account.label}</h2>
+              <span className="text-sm text-accent">Ver ›</span>
+            </div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="tnum text-3xl font-semibold">{fmt(spent)}</span>
+              <span className="text-sm text-muted">de {fmt0(budget)}</span>
+            </div>
+            <div className="relative mt-3">
+              <Meter value={spent / budget} tone={tone} />
+              {expected != null && <div className="absolute -top-1 h-4 w-0.5 rounded bg-ink" style={{ left: `${(dia / days) * 100}%` }} title="Lo que tocaría llevar hoy" />}
+            </div>
+            <p className={`mt-3 text-sm ${tone === "bad" ? "text-bad" : "text-ink2"}`}>
+              {left < 0 ? <>Os habéis pasado <b>{fmt0(-left)}</b> este mes.</>
+                : expected != null ? <>{spent <= expected ? `Vais ${fmt0(expected - spent)} por debajo` : `Vais ${fmt0(spent - expected)} por encima`} de lo previsto a hoy. Quedan <b className="text-ink">{fmt0(left)}</b>.</>
+                : <>Quedan <b className="text-ink">{fmt0(left)}</b>.</>}
+            </p>
+          </Link>
+        );
+      })}
 
       {/* Cuentas, como en la app del banco */}
       <section>
