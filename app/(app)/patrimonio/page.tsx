@@ -21,8 +21,14 @@ export default async function PatrimonioPage() {
 
   return (
     <div className="space-y-4">
-      <Hero kicker="Patrimonio" value={fmt0(nw.total)}
+      <Hero kicker="Patrimonio total" value={fmt0(nw.total)}
         sub={prev != null ? <>{nw.total >= prev ? "▲" : "▼"} {fmt0(Math.abs(nw.total - prev))} desde el mes pasado</> : "Se actualiza solo con los saldos del banco y el precio de los fondos"}>
+        {nw.joint !== 0 && (
+          <div className="mb-4 grid grid-cols-2 gap-2">
+            <div className="rounded-2xl bg-white/10 px-3 py-2.5"><div className="text-[11px] text-white/60">Mío</div><div className="tnum text-lg font-semibold">{fmt0(nw.mine)}</div></div>
+            <a href="/casa" className="rounded-2xl bg-white/10 px-3 py-2.5 hover:bg-white/15"><div className="text-[11px] text-white/60">Conjuntas</div><div className="tnum text-lg font-semibold">{fmt0(nw.joint)}</div></a>
+          </div>
+        )}
         <div className="h-2 overflow-hidden rounded-full bg-white/15" aria-hidden>
           <div className="h-2 bg-[rgb(var(--accent2))]" style={{ width: `${share(nw.cash) * 100}%` }} />
         </div>

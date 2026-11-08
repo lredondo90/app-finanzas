@@ -15,7 +15,7 @@ const eur = (v: number) => v.toLocaleString("es-ES", { style: "currency", curren
 const ibanShort = (iban: string | null) => (iban ? `${iban.slice(0, 4)} ···· ${iban.slice(-4)}` : null);
 const accountName = (a: StoredAccount) => {
   const n = a.label || ibanShort(a.iban) || a.name || "Cuenta";
-  const kind: Record<string, string> = { ahorro: "ahorro", anuales: "anuales", conjunta: "conjunta" };
+  const kind: Record<string, string> = { ahorro: "ahorro", anuales: "anuales", conjunta: "conjunta", directa: "sin revisar", recibos: "recibos" };
   return a.kind && kind[a.kind] ? `${n} (${kind[a.kind]})` : n;
 };
 
@@ -108,6 +108,14 @@ export default async function BankConnections({ connections, openId, lines = [] 
                                 ))}
                               </div>
                             </fieldset>
+                            <div className="bills-only [grid-column:2/-1] rounded-lg bg-line/30 p-2">
+                              <label className="text-xs text-ink2">Todos sus cargos cuentan como (las entradas son traspasos tuyos y no cuentan)
+                                <select className="input mt-1" name={`bill:${a.uid}`} defaultValue={a.bill_line_id ?? ""}>
+                                  <option value="">— Elegir concepto —</option>
+                                  {lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                </select>
+                              </label>
+                            </div>
                             <div className="joint-only [grid-column:2/-1] gap-2 rounded-lg bg-line/30 p-2 sm:grid-cols-2">
                               <label className="text-xs text-ink2">Tu transferencia a esta cuenta cuenta en tu presupuesto como
                                 <select className="input mt-1" name={`line:${a.uid}`} defaultValue={a.contribution_line_id ?? ""}>
@@ -124,7 +132,8 @@ export default async function BankConnections({ connections, openId, lines = [] 
                       })}
                     </ul>
                     <p className="text-xs text-muted">
-                      De gastos: cada movimiento se apunta o te lo dejo para revisar. De ahorro y de gastos anuales: sus movimientos se guardan
+                      De gastos: cada movimiento se apunta o te lo dejo para revisar. Sin revisar: todo lo que sale va a «Otros» en su mes (también lo pendiente),
+                      lo que entra es ingreso tuyo y las compras de fondos van a Inversión. Recibos: todos sus cargos van al concepto que elijas. De ahorro y de gastos anuales: sus movimientos se guardan
                       como «no contar», para que ni el dinero que apartas ni los recibos anuales (que ya cuentan en Anuales) salgan como gasto del mes.
                       Conjunta: lo que pasa en ella va a la pantalla Casa y nunca a tus gastos; lo que tú le transfieres cuenta en el concepto que elijas.
                     </p>

@@ -4,6 +4,7 @@ import HBars from "@/components/HBars";
 import Hero from "@/components/Hero";
 import MonthPicker, { currentMonth } from "@/components/MonthPicker";
 import MovementList from "@/components/MovementList";
+import SyncButton from "@/components/SyncButton";
 import SyncOnOpen from "@/components/SyncOnOpen";
 import YearChart from "@/components/YearChart";
 import { windowLabel } from "@/lib/accounting";
@@ -64,7 +65,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     <div className="space-y-4">
       <Hero
         top={<MonthPicker month={month} year={d.year} min={first} />}
-        right={(connCount ?? 0) > 0 ? <div className="text-white/70"><SyncOnOpen /></div> : null}
+        right={(connCount ?? 0) > 0 ? <div className="flex items-center gap-2 text-white/70"><SyncOnOpen /><SyncButton compact /></div> : null}
         value={fmt0(s.resultado)}
         sub={<>Te queda este mes{shifted.length ? <> · {shifted.join(", ")} del {windowLabel(d.year, month, cutoff)}</> : null}</>}>
         <div className="mt-4 grid grid-cols-3 gap-2 text-center">
@@ -83,45 +84,36 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         </div>
       </Hero>
 
+      {/* Lo gastado este mes: lo tuyo y lo de casa, juntos */}
+      <section className={`grid gap-3 ${house.budgets.length ? "grid-cols-2" : "grid-cols-1"}`}>
+        <Link href={`/gastos?m=${month}`} className="card block py-3.5 sm:py-4">
+          <div className="flex items-center justify-between text-xs text-muted"><span>Mis gastos</span><span>›</span></div>
+          <div className="tnum mt-1 text-2xl font-semibold">{fmt0(s.variableReal)}</div>
+          <div className="mb-2 text-xs text-muted">de {fmt0(s.prevision)}{s.ritmo ? ` · día ${s.ritmo.dia}` : ""}</div>
+          <Meter value={usado} tone={usado > 1 || (s.ritmo && s.variableReal > s.ritmo.previstoHastaHoy) ? "bad" : "accent"} />
+        </Link>
+        {house.budgets.map(({ account, budget, spent }) => {
+          const now = new Date();
+          const isCurrent = now.getFullYear() === d.year && now.getMonth() + 1 === month;
+          const expected = isCurrent ? (budget * now.getDate()) / new Date(d.year, month, 0).getDate() : null;
+          const bad = spent > budget || (expected != null && spent > expected);
+          return (
+            <Link key={account.uid} href={`/casa?m=${month}`} className="card block py-3.5 sm:py-4">
+              <div className="flex items-center justify-between text-xs text-muted"><span className="truncate">Casa · {account.label}</span><span>›</span></div>
+              <div className="tnum mt-1 text-2xl font-semibold">{fmt0(spent)}</div>
+              <div className="mb-2 text-xs text-muted">de {fmt0(budget)} · quedan {fmt0(Math.max(0, budget - spent))}</div>
+              <Meter value={spent / budget} tone={bad ? "bad" : "accent"} />
+            </Link>
+          );
+        })}
+      </section>
+
       {(pendingCount ?? 0) > 0 && (
-        <Link href="/importar" className="card flex items-center gap-3 py-3 sm:py-3">
-          <span className="icon-tile bg-accent text-sm font-bold text-white">{pendingCount}</span>
-          <span className="flex-1 text-sm"><b>Movimientos nuevos del banco</b><span className="block text-xs text-muted">Dime qué son y los aprenderé</span></span>
-          <span className="text-accent">Revisar ›</span>
+        <Link href="/importar" className="flex items-center gap-2 px-1 text-xs text-ink2">
+          <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-white">{pendingCount}</span>
+          movimientos por revisar <span className="text-accent">Revisar ›</span>
         </Link>
       )}
-
-      {/* Presupuesto de casa (cuentas conjuntas con presupuesto, p. ej. Revolut 600 €) */}
-      {house.budgets.map(({ account, budget, spent }) => {
-        const left = budget - spent;
-        const now = new Date();
-        const isCurrent = now.getFullYear() === d.year && now.getMonth() + 1 === month;
-        const days = new Date(d.year, month, 0).getDate();
-        const dia = now.getDate();
-        const expected = isCurrent ? (budget * dia) / days : null;
-        const tone = left < 0 || (expected != null && spent > expected) ? "bad" : "accent";
-        return (
-          <Link key={account.uid} href={`/casa?m=${month}`} className="card block">
-            <div className="flex items-center justify-between">
-              <h2 className="section-title">Casa · {account.label}</h2>
-              <span className="text-sm text-accent">Ver ›</span>
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="tnum text-3xl font-semibold">{fmt(spent)}</span>
-              <span className="text-sm text-muted">de {fmt0(budget)}</span>
-            </div>
-            <div className="relative mt-3">
-              <Meter value={spent / budget} tone={tone} />
-              {expected != null && <div className="absolute -top-1 h-4 w-0.5 rounded bg-ink" style={{ left: `${(dia / days) * 100}%` }} title="Lo que tocaría llevar hoy" />}
-            </div>
-            <p className={`mt-3 text-sm ${tone === "bad" ? "text-bad" : "text-ink2"}`}>
-              {left < 0 ? <>Os habéis pasado <b>{fmt0(-left)}</b> este mes.</>
-                : expected != null ? <>{spent <= expected ? `Vais ${fmt0(expected - spent)} por debajo` : `Vais ${fmt0(spent - expected)} por encima`} de lo previsto a hoy. Quedan <b className="text-ink">{fmt0(left)}</b>.</>
-                : <>Quedan <b className="text-ink">{fmt0(left)}</b>.</>}
-            </p>
-          </Link>
-        );
-      })}
 
       {/* Cuentas, como en la app del banco */}
       <section>

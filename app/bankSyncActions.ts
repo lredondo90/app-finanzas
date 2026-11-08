@@ -52,7 +52,7 @@ export async function disconnectBank(form: FormData) {
  * Descarga los movimientos nuevos de todos los bancos conectados.
  * Lo que ya está aprendido (o es inversión/traspaso) se guarda solo; el resto queda «por revisar».
  */
-export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promise<{ synced: number; saved: number; pending: number; errors: string[]; skipped: string[] }> {
+export async function syncBanks(opts: { onlyIfStaleHours?: number; oncePerDay?: boolean } = {}): Promise<{ synced: number; saved: number; pending: number; errors: string[]; skipped: string[] }> {
   const { supabase } = await getUser();
   const result = { synced: 0, saved: 0, pending: 0, errors: [] as string[], skipped: [] as string[] };
   if (!enableBankingConfigured()) return result;
@@ -68,7 +68,9 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
     c.last_error === RATE_LIMIT && !!c.last_sync_at && day(new Date(c.last_sync_at)) === day(now);
   // Los que hoy ya llegaron al límite del banco no se consultan (se dice cuáles)
   result.skipped = conns.filter((c) => chosen(c).length > 0 && blockedToday(c)).map((c) => c.aspsp_name);
-  const due = conns.filter((c) => chosen(c).length > 0 && !blockedToday(c)).filter((c) => !opts.onlyIfStaleHours || !c.last_sync_at || now - new Date(c.last_sync_at).getTime() > opts.onlyIfStaleHours * 3600000);
+  const due = conns.filter((c) => chosen(c).length > 0 && !blockedToday(c)).filter((c) => !opts.onlyIfStaleHours || !c.last_sync_at || now - new Date(c.last_sync_at).getTime() > opts.onlyIfStaleHours * 3600000)
+    // Sola, solo la primera vez que abres la app cada día
+    .filter((c) => !opts.oncePerDay || !c.last_sync_at || day(new Date(c.last_sync_at)) !== day(now));
   if (!due.length) { await refreshWealth(supabase); return result; }
 
   const [categories, lines, rules, expenses, settingsRes] = await Promise.all([
@@ -95,9 +97,19 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
     if (!error) for (const r of data ?? []) jointIn.push({ accountUid: r.account_uid, date: r.date, amount: Number(r.amount) });
   }
 
-  // Primero los bancos con cuentas conjuntas, para que lo que entra en ellas ya se conozca al revisar tus cuentas
+  // Primero los bancos con cuentas conjuntas, para que lo que entra en ellas ya se conozca al revisar tus cuentas;
+  // las cuentas «sin revisar» al final, para saber si lo que sale de ellas llega a otra cuenta tuya
   const hasJoint = (c: { accounts: StoredAccount[] }) => c.accounts.some((a) => a.sync === true && a.kind === "conjunta");
-  due.sort((a, b) => Number(hasJoint(b)) - Number(hasJoint(a)));
+  const hasDirect = (c: { accounts: StoredAccount[] }) => c.accounts.some((a) => a.sync === true && a.kind === "directa");
+  due.sort((a, b) => Number(hasJoint(b)) - Number(hasJoint(a)) || Number(hasDirect(a)) - Number(hasDirect(b)));
+  // Entradas en todas tus cuentas (para no contar como gasto lo que sale de una y llega a otra)
+  const ownIn: { bank: string; date: string; amount: number }[] = [];
+  {
+    const { data } = await supabase.from("bank_movements").select("bank, date, amount").gt("amount", 0).gte("date", new Date(now - 75 * 86400000).toISOString().slice(0, 10));
+    for (const r of data ?? []) ownIn.push({ bank: r.bank, date: r.date, amount: Number(r.amount) });
+  }
+  const otros = (categories.data ?? []).find((x) => /^otros?$/i.test(x.name.trim()))?.id ?? null;
+  const days = (a: string, b: string) => Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 86400000;
 
   for (const c of due) {
     try {
@@ -109,11 +121,18 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
       // Una cuenta que se sincroniza por primera vez trae sus 2 últimos meses (nunca antes del inicio de la app)
       const firstFrom = clamp(new Date(now - 60 * 86400000).toISOString().slice(0, 10));
       const perAccount = await Promise.all(chosen(c).map(async (a) => {
-        const ms = await fetchTransactions(a.uid, a.synced ? from : firstFrom, c.aspsp_name, a.label || (a.iban ? `···${a.iban.slice(-4)}` : null));
-        return ms.map((m) => ({ m, kind: a.kind ?? "gastos", uid: a.uid }));
+        const ms = await fetchTransactions(a.uid, a.synced ? from : firstFrom, c.aspsp_name, a.label || (a.iban ? `···${a.iban.slice(-4)}` : null), a.kind === "directa");
+        return ms.map((m) => ({ m, kind: a.kind ?? "gastos", uid: a.uid, bill: a.bill_line_id ?? null }));
       }));
       const tagged = perAccount.flat();
       const movements = tagged.map((t) => t.m);
+      ownIn.push(...movements.filter((m) => m.amount > 0 && !m.pending).map((m) => ({ bank: m.bank, date: m.date, amount: m.amount })));
+      // Lo contabilizado de este banco, para que un pendiente no se cuente dos veces cuando el banco lo confirme
+      const booked = movements.filter((m) => !m.pending).map((m) => ({ date: m.date, amount: m.amount }));
+      {
+        const { data } = await supabase.from("bank_movements").select("date, amount, import_key").eq("bank", c.aspsp_name).gte("date", new Date(now - 20 * 86400000).toISOString().slice(0, 10));
+        for (const r of data ?? []) if (!r.import_key.includes("|pend|")) booked.push({ date: r.date, amount: Number(r.amount) });
+      }
       // Lo que entra en las cuentas conjuntas en esta descarga también sirve para emparejar tus transferencias
       const incoming = jointIn;
       incoming.push(...tagged.filter((t) => t.kind === "conjunta" && t.m.amount > 0).map((t) => ({ accountUid: t.uid, date: t.m.date, amount: t.m.amount })));
@@ -132,7 +151,23 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
       }).map((r, i) => {
         // Cuentas de ahorro y de gastos anuales: sus movimientos no son gasto ni ingreso del mes
         const kind = tagged[i].kind;
+        // Pendiente: clave propia, se borra y se vuelve a crear en cada sincronización hasta que el banco lo confirme
+        if (tagged[i].m.pending) r = { ...r, key: `${c.aspsp_name}|pend|${r.date}|${r.amount.toFixed(2)}|${i}`, reason: r.reason };
         if (!r.include) return r;
+        // Cuenta «sin revisar» (p. ej. Trade Republic): todo cuenta en su mes, sin preguntar
+        if (kind === "directa") {
+          if (r.action === "inversion") return r; // compras del plan de ETF: no son gasto
+          if (r.amount > 0) return { ...r, action: "puntual" as const, category_id: null, line_id: null, learned: true, reason: "Entrada en tu cuenta: ingreso tuyo" };
+          if (ownIn.some((x) => x.bank !== r.bank && Math.abs(x.amount + r.amount) < 0.005 && days(x.date, r.date) <= 3))
+            return { ...r, action: "ignorar" as const, category_id: null, line_id: null, learned: false, reason: "Movimiento entre tus cuentas" };
+          return { ...r, action: "variable" as const, category_id: r.action === "variable" && r.learned && r.category_id ? r.category_id : otros, line_id: null,
+            learned: true, reason: tagged[i].m.pending ? "Pendiente de confirmar por el banco" : "Cuenta sin revisar: va a Otros" };
+        }
+        // Cuenta de recibos (p. ej. Sabadell → HIPOTECA TC): lo que sale es el recibo; lo que entra, un traspaso tuyo
+        if (kind === "recibos") {
+          if (r.amount > 0 || !tagged[i].bill) return { ...r, action: "ignorar" as const, category_id: null, line_id: null, learned: false, reason: "Movimiento entre tus cuentas" };
+          return { ...r, action: "fijo" as const, line_id: tagged[i].bill, category_id: null, learned: true, reason: "Recibo de la cuenta de recibos" };
+        }
         // Cuenta conjunta: nunca es gasto tuyo; se guarda con su categoría para la pantalla Casa
         if (kind === "conjunta") {
           return { ...r, action: "ignorar" as const, house: true, category_id: r.action === "variable" ? r.category_id : null, line_id: null, learned: false,
@@ -149,7 +184,9 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         }
         return { ...r, action: "ignorar" as const, category_id: null, line_id: null, learned: false,
           reason: kind === "ahorro" ? "Cuenta de ahorro: no cuenta como gasto del mes" : "Cuenta de gastos anuales: ya cuenta en Anuales" };
-      }).filter((r) => !existingKeys.has(r.key))
+      }).filter((r, i) => !existingKeys.has(r.key) &&
+        // Un pendiente que ya está confirmado (mismo importe, ±4 días) no se repite
+        !(tagged[i]?.m.pending && booked.some((b) => Math.abs(b.amount - r.amount) < 0.005 && days(b.date, r.date) <= 4)))
         // Desde el día siguiente al corte del mes anterior al inicio: así se pueden revisar la nómina y los préstamos de finales de mes
         .filter((r) => !minFrom || r.date >= minFrom);
 
@@ -158,6 +195,8 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         (r.include && (r.learned || r.action === "inversion" || (r.action === "ignorar" && /entre tus cuentas|^Cuenta (de|conjunta)/.test(r.reason)) || r.reason.startsWith("Tu aportación a "))));
       const review = rows.filter((r) => !auto.includes(r));
 
+      // Los pendientes guardados la vez anterior se sustituyen por los de ahora (o por el movimiento ya confirmado)
+      await removePending(supabase, c.aspsp_name);
       if (auto.length) {
         const res = await confirmBankImport(auto.map((r): ConfirmRow => ({ ...r, remember: false })), true);
         if (res.error) throw new Error(res.error);
@@ -197,6 +236,17 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
   return result;
 }
 
+/** Borra los movimientos pendientes guardados de un banco (y su gasto o ingreso) */
+async function removePending(supabase: Awaited<ReturnType<typeof getUser>>["supabase"], bank: string) {
+  const { data } = await supabase.from("bank_movements").select("id, expense_id, one_off_income_id").eq("bank", bank).like("import_key", `${bank}|pend|%`);
+  if (!data?.length) return;
+  const exp = data.map((d) => d.expense_id).filter(Boolean);
+  const inc = data.map((d) => d.one_off_income_id).filter(Boolean);
+  await supabase.from("bank_movements").delete().in("id", data.map((d) => d.id));
+  if (exp.length) await supabase.from("expenses").delete().in("id", exp);
+  if (inc.length) await supabase.from("one_off_incomes").delete().in("id", inc);
+}
+
 /** Precios de los fondos (una vez al día) y foto del patrimonio del mes; nunca impide la sincronización */
 async function refreshWealth(supabase: Awaited<ReturnType<typeof getUser>>["supabase"]) {
   try {
@@ -231,9 +281,10 @@ export async function saveAccountSelection(form: FormData) {
   })).map((a) => {
     // Solo las conjuntas llevan concepto de aportación y presupuesto de casa
     const budget = Number(String(form.get(`budget:${a.uid}`) ?? "").replace(",", "."));
+    const bill = a.kind === "recibos" ? String(form.get(`bill:${a.uid}`) ?? "") || null : null;
     return a.kind === "conjunta"
-      ? { ...a, contribution_line_id: String(form.get(`line:${a.uid}`) ?? "") || null, house_budget: budget > 0 ? Math.round(budget * 100) / 100 : null }
-      : { ...a, contribution_line_id: null, house_budget: null };
+      ? { ...a, bill_line_id: null, contribution_line_id: String(form.get(`line:${a.uid}`) ?? "") || null, house_budget: budget > 0 ? Math.round(budget * 100) / 100 : null }
+      : { ...a, bill_line_id: bill, contribution_line_id: null, house_budget: null };
   });
   await supabase.from("bank_connections").update({ accounts }).eq("id", id);
   revalidatePath("/", "layout");

@@ -2,6 +2,8 @@ import { firstSyncDate } from "@/lib/accounting";
 import Hero from "@/components/Hero";
 import BankConnections from "@/components/BankConnections";
 import BankImport from "@/components/BankImport";
+import DirectMovements from "@/components/DirectMovements";
+import type { StoredAccount } from "@/lib/enableBanking";
 import type { SuggestedRow } from "@/lib/bankSuggest";
 import { deleteImportRule } from "@/app/importActions";
 import { getUser } from "@/lib/data";
@@ -28,6 +30,12 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
   const pendingRows = (pending.data ?? []).map((p) => p.row as SuggestedRow)
     .filter((r) => !since || r.date >= since)
     .sort((a, b) => b.date.localeCompare(a.date));
+  // Lo que se guardó solo de las cuentas «sin revisar» (p. ej. Trade Republic), por si quieres cambiar algo
+  const directBanks = (conns.data ?? []).filter((c) => (c.accounts as StoredAccount[]).some((a) => a.sync && a.kind === "directa")).map((c) => c.aspsp_name);
+  const { data: directRows } = directBanks.length
+    ? await supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, import_key")
+      .in("bank", directBanks).gte("date", new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10)).order("date", { ascending: false }).limit(80)
+    : { data: [] };
   const [saved, pend] = (sp.sync ?? "").split("|").map(Number);
   const cats = categories.data ?? [];
   const ls = lines.data ?? [];
@@ -58,6 +66,14 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
       )}
 
       <BankConnections connections={conns.data ?? []} openId={sp.cuentas} lines={ls.filter((l) => l.section === "fijo")} />
+
+      {(directRows?.length ?? 0) > 0 && (
+        <details className="card">
+          <summary className="cursor-pointer list-none text-sm font-medium">Revisar movimientos de {directBanks.join(", ")} <span className="text-muted">({directRows!.length})</span></summary>
+          <p className="mb-2 mt-1 text-xs text-muted">Se guardan solos en «Otros». Cambia aquí la categoría, o márcalo como inversión o «no contar».</p>
+          <DirectMovements categories={cats} rows={directRows!.map((r) => ({ ...r, amount: Number(r.amount), pending: r.import_key.includes("|pend|") }))} />
+        </details>
+      )}
 
       {pendingRows.length > 0 && <BankImport key={pendingRows.length} pendingMode initialRows={pendingRows} categories={cats} lines={ls} />}
 
