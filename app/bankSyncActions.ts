@@ -82,7 +82,6 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
   const startDate: string | null = settingsRes.data?.start_date ?? null;
   const minFrom = firstSyncDate(startDate, settingsRes.data?.cutoff_day ?? 25);
   const clamp = (d: string) => (minFrom && d < minFrom ? minFrom : d);
-  const shifts = (lineId: string | null) => !!(lines.data ?? []).find((l) => l.id === lineId)?.next_month;
   const today = day(now);
 
   // Cuentas conjuntas (de todas las conexiones): sus movimientos van a Casa y tus transferencias a ellas son tu aportación
@@ -151,8 +150,8 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number } = {}): Promi
         return { ...r, action: "ignorar" as const, category_id: null, line_id: null, learned: false,
           reason: kind === "ahorro" ? "Cuenta de ahorro: no cuenta como gasto del mes" : "Cuenta de gastos anuales: ya cuenta en Anuales" };
       }).filter((r) => !existingKeys.has(r.key))
-        // Antes del inicio solo cuentan la nómina y los recibos que pasan al mes siguiente
-        .filter((r) => !startDate || r.date >= startDate || ((r.action === "ingreso" || r.action === "fijo") && shifts(r.line_id)));
+        // Desde el día siguiente al corte del mes anterior al inicio: así se pueden revisar la nómina y los préstamos de finales de mes
+        .filter((r) => !minFrom || r.date >= minFrom);
 
       const auto = rows.filter((r) =>
         r.reason === "Ya importado desde un extracto" || // se registra como «no contar» para que no vuelva a salir

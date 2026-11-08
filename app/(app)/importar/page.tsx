@@ -1,3 +1,4 @@
+import { firstSyncDate } from "@/lib/accounting";
 import Hero from "@/components/Hero";
 import BankConnections from "@/components/BankConnections";
 import BankImport from "@/components/BankImport";
@@ -21,12 +22,11 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
     supabase.from("bank_connections").select("*").order("created_at"),
     supabase.from("bank_pending").select("row").order("created_at"),
   ]);
-  // Lo anterior al inicio de la app no se revisa (salvo la nómina y los recibos que pasan al mes siguiente)
-  const { data: settings } = await supabase.from("settings").select("start_date").maybeSingle();
-  const start: string | null = settings?.start_date ?? null;
-  const shifts = (id: string | null) => !!(lines.data ?? []).find((l) => l.id === id)?.next_month;
+  // Lo anterior al inicio no se revisa; desde el día siguiente al corte del mes anterior sí (nómina y préstamos de fin de mes)
+  const { data: settings } = await supabase.from("settings").select("start_date, cutoff_day").maybeSingle();
+  const since = firstSyncDate(settings?.start_date ?? null, settings?.cutoff_day ?? 25);
   const pendingRows = (pending.data ?? []).map((p) => p.row as SuggestedRow)
-    .filter((r) => !start || r.date >= start || ((r.action === "ingreso" || r.action === "fijo") && shifts(r.line_id)))
+    .filter((r) => !since || r.date >= since)
     .sort((a, b) => b.date.localeCompare(a.date));
   const [saved, pend] = (sp.sync ?? "").split("|").map(Number);
   const cats = categories.data ?? [];
