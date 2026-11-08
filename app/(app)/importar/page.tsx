@@ -57,7 +57,7 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
         <p className="card border-good/40 bg-good/10 text-sm text-good">✓ Sincronizado: {saved || 0} guardados automáticamente, {pend || 0} nuevos por revisar.</p>
       )}
 
-      <BankConnections connections={conns.data ?? []} openId={sp.cuentas} />
+      <BankConnections connections={conns.data ?? []} openId={sp.cuentas} lines={ls.filter((l) => l.section === "fijo")} />
 
       {pendingRows.length > 0 && <BankImport key={pendingRows.length} pendingMode initialRows={pendingRows} categories={cats} lines={ls} />}
 

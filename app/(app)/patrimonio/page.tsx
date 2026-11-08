@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 const fmtUnits = (v: number) => v.toLocaleString("es-ES", { maximumFractionDigits: 4 });
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "short" }) : null);
-const KIND: Record<string, string> = { gastos: "Día a día", ahorro: "Ahorro", anuales: "Gastos anuales" };
+const KIND: Record<string, string> = { gastos: "Día a día", ahorro: "Ahorro", anuales: "Gastos anuales", conjunta: "Conjunta (casa)" };
 
 export default async function PatrimonioPage() {
   const d = await loadYear();

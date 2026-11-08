@@ -44,6 +44,7 @@ export default function BankImport({ categories, lines, initialRows, pendingMode
     const payload: ConfirmRow[] = rows!.filter((r) => r.include || pendingMode).map((r) => ({
       key: r.key, pattern: r.pattern, bank: r.bank, date: r.date, description: r.description, detail: r.detail, type: r.type,
       amount: r.amount, action: r.include ? r.action : "ignorar", category_id: r.category_id, line_id: r.line_id, remember: r.include && r.remember,
+      accountUid: r.accountUid ?? null, house: r.house,
     }));
     start(async () => {
       const res = await confirmBankImport(payload, useReal);

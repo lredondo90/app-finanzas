@@ -320,3 +320,10 @@ do $$ begin
       using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
   end if;
 end $$;
+-- ---------------------------------------------------------
+-- v6 · Casa: cuentas conjuntas
+-- ---------------------------------------------------------
+-- Cuenta de la que viene cada movimiento (id de Enable Banking), para separar los de las cuentas conjuntas.
+-- El tipo «conjunta», el concepto de tu aportación y el presupuesto de casa se guardan en bank_connections.accounts.
+alter table public.bank_movements add column if not exists account_uid text;
+create index if not exists bank_movements_account_idx on public.bank_movements (account_uid, date);
