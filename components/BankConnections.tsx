@@ -84,7 +84,7 @@ export default async function BankConnections({ connections, openId, lines = [] 
                       {c.accounts.map((a) => {
                         const bal = a.balance;
                         return (
-                          <li key={a.uid} className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 py-2 sm:grid-cols-[auto_1fr_auto_12rem_11rem]">
+                          <li key={a.uid} className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 py-2 sm:grid-cols-[auto_1fr_auto_14rem]">
                             <input type="checkbox" name={`sync:${a.uid}`} defaultChecked={a.sync === true} aria-label="Sincronizar"
                               className="h-4 w-4 accent-[rgb(var(--accent))]" />
                             <div className="min-w-0">
@@ -96,9 +96,17 @@ export default async function BankConnections({ connections, openId, lines = [] 
                             </div>
                             <input className="input col-start-2 sm:col-start-auto" name={`label:${a.uid}`} defaultValue={a.label ?? ""}
                               placeholder="Nombre (p. ej. Nómina)" aria-label="Nombre de la cuenta" />
-                            <select className="input col-start-2 sm:col-start-auto" name={`kind:${a.uid}`} defaultValue={a.kind ?? "gastos"} aria-label="Tipo de cuenta">
-                              {ACCOUNT_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-                            </select>
+                            <fieldset className="[grid-column:2/-1]">
+                              <legend className="mb-1 text-xs text-muted">¿Qué es esta cuenta?</legend>
+                              <div className="flex flex-wrap gap-1.5">
+                                {ACCOUNT_KINDS.map((k) => (
+                                  <label key={k.value} className="cursor-pointer">
+                                    <input type="radio" className="peer sr-only" name={`kind:${a.uid}`} value={k.value} defaultChecked={(a.kind ?? "gastos") === k.value} />
+                                    <span className="inline-block rounded-full border border-line px-3 py-1.5 text-xs peer-checked:border-accent peer-checked:bg-accent peer-checked:text-white">{k.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </fieldset>
                             <div className="joint-only [grid-column:2/-1] gap-2 rounded-lg bg-line/30 p-2 sm:grid-cols-2">
                               <label className="text-xs text-ink2">Tu transferencia a esta cuenta cuenta en tu presupuesto como
                                 <select className="input mt-1" name={`line:${a.uid}`} defaultValue={a.contribution_line_id ?? ""}>

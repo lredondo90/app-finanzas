@@ -39,7 +39,10 @@ export default async function PatrimonioPage() {
           <h2 className="section-title mb-1">Cuentas</h2>
           {banks.map((bank) => (
             <div key={bank} className="mt-3">
-              <div className="label mb-1">{bank}</div>
+              <div className="mb-1 flex items-baseline justify-between">
+                <span className="label">{bank}</span>
+                <a href={`/importar?cuentas=${d.syncedAccounts.find((a) => a.bank === bank)?.connectionId}`} className="text-xs text-accent">Cambiar tipo de cuenta ›</a>
+              </div>
               <ul className="divide-y divide-line/70">
                 {d.syncedAccounts.filter((a) => a.bank === bank).map((a) => (
                   <li key={a.uid} className="flex items-center gap-3 py-2.5">
