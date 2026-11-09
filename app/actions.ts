@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { getUser } from "@/lib/data";
+import { getUser, loadYear } from "@/lib/data";
+import { EXTRA_MONTHS, extraValue, normalValue } from "@/lib/plan";
 import { createClient } from "@/lib/supabase/server";
 
 const str = (f: FormData, k: string) => {
@@ -355,13 +356,18 @@ export async function createNextYear() {
   const to = from + 1;
   const { count } = await supabase.from("budget_values").select("*", { count: "exact", head: true }).eq("year", to);
   if (!count) {
-    const { data: values } = await check(supabase.from("budget_values").select("line_id, month, planned, adjusted").eq("year", from));
-    const rows = (values ?? []).map((v) => ({ line_id: v.line_id, year: to, month: v.month, planned: v.planned ?? 0 }));
+    // Cada concepto pasa con su mes normal; los ingresos con paga extra la llevan en enero y julio
+    const prev = await loadYear(from);
+    const rows = prev.lines.flatMap((l) => {
+      const normal = normalValue(prev, l);
+      const extra = l.section === "ingreso" ? extraValue(prev, l) : 0;
+      return Array.from({ length: 12 }, (_, i) => ({ line_id: l.id, year: to, month: i + 1, planned: normal + (EXTRA_MONTHS.includes(i + 1) ? extra : 0) }));
+    });
     for (let i = 0; i < rows.length; i += 500) await check(supabase.from("budget_values").insert(rows.slice(i, i + 500)));
   }
   await check(supabase.from("settings").upsert({ user_id: user.id, year: to, updated_at: new Date().toISOString() }));
   done();
-  redirect("/presupuesto?nuevo=" + to);
+  redirect("/plan?nuevo=" + to);
 }
 
 // ---------------- Mes contable ----------------
@@ -408,4 +414,36 @@ export async function deleteHolding(form: FormData) {
   const { supabase } = await getUser();
   await check(supabase.from("fund_holdings").delete().eq("isin", String(form.get("isin"))));
   done();
+}
+
+// ---------------- Mi plan: mes normal + paga extra ----------------
+/**
+ * Guarda el importe de un mes normal o la paga extra (enero y julio) de un concepto.
+ * Los meses que eran un cambio puntual (no seguían el patrón anterior) se respetan.
+ */
+export async function setPlanLine(lineId: string, year: number, field: "normal" | "extra", value: string, oldNormal: number, oldExtra: number) {
+  const { supabase } = await getUser();
+  const parsed = numOrNull(value) ?? 0;
+  const normal = field === "normal" ? parsed : oldNormal;
+  const extra = field === "extra" ? parsed : oldExtra;
+  const extraMonths = [1, 7];
+  const { data: existing } = await check(supabase.from("budget_values").select("*").eq("line_id", lineId).eq("year", year));
+  const rows = Array.from({ length: 12 }, (_, i) => {
+    const month = i + 1;
+    const cur = existing?.find((e) => e.month === month);
+    const oldPattern = oldNormal + (extraMonths.includes(month) ? oldExtra : 0);
+    const keep = cur && Math.abs(Number(cur.planned ?? 0) - oldPattern) > 0.005;
+    const planned = keep ? Number(cur.planned) : normal + (extraMonths.includes(month) ? extra : 0);
+    return { line_id: lineId, year, month, planned, adjusted: cur?.adjusted ?? null };
+  });
+  await check(supabase.from("budget_values").upsert(rows, { onConflict: "line_id,year,month" }));
+  done();
+}
+
+/** Cambio puntual: lo previsto de un concepto en un mes concreto */
+export async function savePlanException(form: FormData) {
+  const lineId = String(form.get("line_id") ?? "");
+  const month = Number(form.get("month"));
+  if (!lineId || !(month >= 1 && month <= 12)) return;
+  await setBudgetCell(lineId, Number(form.get("year")), month, "planned", String(form.get("value") ?? ""));
 }

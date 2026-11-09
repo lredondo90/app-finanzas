@@ -2,20 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { I, Icon, NAV_ALL } from "./navItems";
+import { Icon, NAV_ALL, TABS } from "./navItems";
 
-const TABS = [
-  { href: "/", label: "Inicio", icon: I.home },
-  { href: "/gastos", label: "Movimientos", icon: I.list },
-  { href: "/presupuesto", label: "Presupuesto", icon: I.budget },
-  { href: "/patrimonio", label: "Patrimonio", icon: I.wealth },
-  { href: "/mas", label: "Más", icon: I.more },
-];
 
 export default function Nav() {
   const path = usePathname();
   const active = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
-  const inMore = !TABS.slice(0, 4).some((t) => active(t.href));
   return (
     <>
       {/* Escritorio: barra lateral azul */}
@@ -36,7 +28,7 @@ export default function Nav() {
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line/70 bg-surface/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
         <div className="flex">
           {TABS.map((it) => {
-            const on = it.href === "/mas" ? inMore : active(it.href);
+            const on = active(it.href);
             return (
               <Link key={it.href} href={it.href}
                 className={`flex flex-1 flex-col items-center gap-1 pb-1.5 pt-2 text-[10px] ${on ? "font-semibold text-accent" : "text-muted"}`}>
