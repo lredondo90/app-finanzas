@@ -1,185 +1,153 @@
-import Hero from "@/components/Hero";
 import Link from "next/link";
-import CellInput from "@/components/CellInput";
-import NextMonthToggle from "@/components/NextMonthToggle";
-import YearSwitcher from "@/components/YearSwitcher";
-import { addBudgetLine, deleteBudgetLine, fillPlannedYear, setBudgetCell } from "@/app/actions";
-import { MONTHS_SHORT, fmt0, isAdjusted, lineValue, monthSummary, plannedValue } from "@/lib/finance";
+import Hero from "@/components/Hero";
+import Meter from "@/components/Meter";
+import MonthPicker, { currentMonth } from "@/components/MonthPicker";
+import { windowLabel } from "@/lib/accounting";
+import { firstMonth, fmt0, isDone, lineValue, plannedValue } from "@/lib/finance";
 import { getUser, loadYear } from "@/lib/data";
-import type { BudgetLine, Section } from "@/lib/types";
+import { loadHouseMonth } from "@/lib/houseData";
+import { libreByAccount, monthPlan } from "@/lib/plan";
+import type { BudgetLine, YearData } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const SECTIONS: { key: Section; title: string; total: string }[] = [
-  { key: "ingreso", title: "Ingresos", total: "Total ingresos" },
-  { key: "fijo", title: "Gastos fijos", total: "Total gastos fijos" },
-  { key: "provision", title: "Provisión gastos variables", total: "Total provisión" },
-];
+const signed = (v: number) => (Math.abs(v) < 0.5 ? "0" : `${v > 0 ? "+" : "−"}${fmt0(Math.abs(v)).replace(/\s?€/, "")}`);
+const num = (v: number) => fmt0(v).replace(/\s?€/, "");
 
-export default async function PresupuestoPage({ searchParams }: { searchParams: Promise<{ modo?: string; nuevo?: string }> }) {
-  const sp = await searchParams;
-  const modo = sp.modo === "fijo" ? "fijo" : "ajustes";
-  const d = await loadYear();
-  const { supabase } = await getUser();
-  const { data: yearRows } = await supabase.from("budget_values").select("year").order("year").limit(5000);
-  const years = Array.from(new Set((yearRows ?? []).map((r) => r.year as number)));
-  const cutoff = d.settings?.cutoff_day ?? 25;
-  const months = Array.from({ length: 12 }, (_, i) => i + 1);
-  const sums = months.map((m) => monthSummary(d, m));
-  const yearTotal = (f: (i: number) => number) => months.reduce((s, m) => s + f(m - 1), 0);
-
-  const row = (line: BudgetLine) => {
-    const vals = months.map((m) => (modo === "fijo" ? plannedValue(d, line, m) : lineValue(d, line, m)));
-    return (
-      <tr key={line.id}>
-        <td className="sticky left-0 z-[1] min-w-[11rem] bg-surface">
-          <div className="flex items-center gap-2">
-            <span className="font-medium">{line.name}</span>
-            {line.is_annual_fund && <Link href="/anuales" className="text-[10px] text-accent">auto</Link>}
-            {(line.section === "ingreso" || line.section === "fijo") && !line.is_annual_fund && (modo === "fijo" || line.next_month) && (
-              <NextMonthToggle lineId={line.id} value={!!line.next_month} cutoff={cutoff} />
-            )}
-            {modo === "fijo" && !line.is_annual_fund && (
-              <form action={deleteBudgetLine} className="ml-auto">
-                <input type="hidden" name="id" value={line.id} />
-                <button className="text-xs text-muted hover:text-bad" aria-label={`Eliminar ${line.name}`}>×</button>
-              </form>
-            )}
-          </div>
-        </td>
-        {months.map((m, i) => {
-          if (modo === "fijo" && line.is_annual_fund) return <td key={m} className="tnum px-1.5 text-right text-ink2">{fmt0(vals[i])}</td>;
-          const adj = isAdjusted(d, line, m);
-          const raw = d.values.find((v) => v.line_id === line.id && v.month === m);
-          const save = async (v: string) => {
-            "use server";
-            await setBudgetCell(line.id, d.year, m, modo === "fijo" ? "planned" : "adjusted", v);
-          };
+function Rows({ d, month, lines, income }: { d: YearData; month: number; lines: BudgetLine[]; income: boolean }) {
+  const rows = lines.map((l) => {
+    const plan = plannedValue(d, l, month);
+    const done = l.is_annual_fund || isDone(d, l, month);
+    const real = done ? lineValue(d, l, month) : null;
+    return { l, plan, done, real };
+  }).filter((r) => Math.abs(r.plan) > 0.005 || (r.real != null && Math.abs(r.real) > 0.005));
+  const totPlan = rows.reduce((a, r) => a + r.plan, 0);
+  const totReal = rows.reduce((a, r) => a + (r.real ?? 0), 0);
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-[11px] text-muted">
+          <th className="pb-1 text-left font-normal"></th>
+          <th className="w-16 pb-1 text-right font-normal">Plan</th>
+          <th className="w-16 pb-1 text-right font-normal">Real</th>
+          <th className="w-16 pb-1 text-right font-normal">Desv.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ l, plan, done, real }) => {
+          // Desviación a favor: ingreso que llega de más o recibo que sale por menos
+          const dev = real == null ? null : income ? real - plan : plan - real;
           return (
-            <td key={m} className="px-0.5 py-0.5">
-              <CellInput
-                ariaLabel={`${line.name} ${MONTHS_SHORT[m - 1]}`}
-                value={modo === "fijo" ? vals[i] : raw?.adjusted ?? null}
-                placeholder={modo === "ajustes" ? String(Math.round(plannedValue(d, line, m))) : undefined}
-                highlight={modo === "ajustes" && adj}
-                onSave={save}
-              />
-            </td>
+            <tr key={l.id} className="border-t border-line/60">
+              <td className="py-2 pr-2">
+                <span className="font-medium">{l.name}</span>{" "}
+                {l.is_annual_fund ? <span className="text-xs text-muted">hucha</span>
+                  : done ? <span className="text-xs font-semibold text-good">✓</span>
+                  : <span className="text-xs font-semibold text-warn">pendiente</span>}
+              </td>
+              <td className="tnum py-2 text-right">{num(plan)}</td>
+              <td className={`tnum py-2 text-right ${real == null ? "text-muted" : ""}`}>{real == null ? "—" : num(real)}</td>
+              <td className={`tnum py-2 text-right ${dev == null ? "" : dev < -0.5 ? "text-bad" : dev > 0.5 ? "text-good" : "text-muted"}`}>{dev == null ? "" : signed(dev)}</td>
+            </tr>
           );
         })}
-        <td className="tnum px-2 text-right font-medium">{fmt0(vals.reduce((a, b) => a + b, 0))}</td>
-        {modo === "fijo" && !line.is_annual_fund && (
-          <td className="px-1">
-            <CellInput ariaLabel={`Copiar a todo el año ${line.name}`} value={null} placeholder="todo el año"
-              onSave={async (v: string) => { "use server"; await fillPlannedYear(line.id, d.year, v); }} />
-          </td>
-        )}
-      </tr>
-    );
-  };
-
-  const totalRow = (label: string, f: (i: number) => number, cls = "") => (
-    <tr key={label} className={`bg-line/30 ${cls}`}>
-      <td className="sticky left-0 z-[1] bg-[rgb(var(--line)/0.3)] font-semibold backdrop-blur">{label}</td>
-      {months.map((m) => <td key={m} className="tnum px-2 text-right font-semibold">{fmt0(f(m - 1))}</td>)}
-      <td className="tnum px-2 text-right font-semibold">{fmt0(yearTotal(f))}</td>
-    </tr>
+        <tr className="border-t border-line font-semibold">
+          <td className="py-2">Total</td>
+          <td className="tnum py-2 text-right">{num(totPlan)}</td>
+          <td className="tnum py-2 text-right">{num(totReal)}</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
   );
+}
+
+export default async function PresupuestoPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
+  const sp = await searchParams;
+  const d = await loadYear();
+  const first = firstMonth(d);
+  const month = currentMonth(sp.m, d.year, first);
+  const { supabase } = await getUser();
+  const house = await loadHouseMonth(supabase, d.year, month);
+  const mp = monthPlan(d, month);
+  const { s, libre } = mp;
+  const cutoff = d.settings?.cutoff_day ?? 25;
+  const mark = s.ritmo ? s.ritmo.dia / s.ritmo.dias : null;
+  const porCuenta = libreByAccount(d, month);
+  const puntuales = d.oneOffIncomes.filter((i) => i.date.startsWith(`${d.year}-`) && Number(i.date.slice(5, 7)) === month);
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <Hero kicker="Presupuesto" title={String(d.year)}>
-            <YearSwitcher year={d.year} years={years} dark />
-          </Hero>
-          <div className="mt-3" />
-          {sp.nuevo && <p className="mb-2 rounded-xl bg-good/10 px-3 py-2 text-sm text-good">✓ Creado {sp.nuevo} con lo previsto del año anterior. Revisa el plan fijo por si algo cambia.</p>}
-          <p className="text-sm text-ink2">
-            {modo === "fijo"
-              ? `Plan fijo de cada mes. Edítalo solo si cambia el plan. La última columna copia un importe a los 12 meses. Con ↪, un ingreso o recibo que llega después del día ${cutoff} cuenta para el mes siguiente.`
-              : "Escribe el importe REAL solo en el mes que se desvíe de lo fijo (vacío = vale lo fijo; un 0 también cuenta). En naranja, los meses ajustados."}
-          </p>
-        </div>
-        <div className="flex rounded-lg border border-line p-0.5 text-sm">
-          <Link href="/presupuesto?modo=ajustes" className={`rounded-md px-3 py-1.5 ${modo === "ajustes" ? "bg-accent text-white" : "text-ink2"}`}>Mensual + ajustes</Link>
-          <Link href="/presupuesto?modo=fijo" className={`rounded-md px-3 py-1.5 ${modo === "fijo" ? "bg-accent text-white" : "text-ink2"}`}>Plan fijo</Link>
-        </div>
-      </div>
+      <Hero
+        top={<MonthPicker month={month} year={d.year} base="/presupuesto" min={first} />}
+        kicker={s.periodo === "pasado" ? "Ahorro del mes" : "Ahorro previsto del mes"}
+        value={fmt0(mp.ahorroPrevisto)}
+        sub={<>
+          <span className={mp.desviacion >= 0 ? "text-emerald-300" : "text-rose-300"}>{mp.desviacion >= 0 ? "+" : "−"}{fmt0(Math.abs(mp.desviacion))} {mp.desviacion >= 0 ? "sobre" : "por debajo del"} plan</span>
+          {" · "}plan {fmt0(mp.plan.ahorro)} · nómina del {windowLabel(d.year, month, cutoff)}
+        </>} />
 
-      <div className="card overflow-x-auto p-0 sm:p-0">
-        <table className="data min-w-[1100px]">
-          <thead>
-            <tr>
-              <th className="sticky left-0 z-[1] bg-surface">Concepto</th>
-              {MONTHS_SHORT.map((m) => <th key={m} className="text-right">{m}</th>)}
-              <th className="text-right">Total</th>
-              {modo === "fijo" && <th className="text-right">Todo el año</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {SECTIONS.map((sec) => {
-              const lines = d.lines.filter((l) => l.section === sec.key);
-              return [
-                <tr key={sec.key + "h"}><td colSpan={15} className="pt-4 text-xs font-semibold uppercase tracking-wide text-accent">{sec.title}</td></tr>,
-                ...lines.map(row),
-                modo === "fijo" ? (
-                  <tr key={sec.key + "add"}>
-                    <td colSpan={15}>
-                      <form action={addBudgetLine} className="flex max-w-sm gap-2">
-                        <input type="hidden" name="section" value={sec.key} />
-                        <input className="input py-1" name="name" placeholder={`Nuevo concepto de ${sec.title.toLowerCase()}`} />
-                        <button className="btn-ghost py-1">Añadir</button>
-                      </form>
-                    </td>
-                  </tr>
-                ) : null,
-                totalRow(sec.total, (i) => (sec.key === "ingreso" ? sums[i].ingresos : sec.key === "fijo" ? sums[i].fijos : sums[i].prevision)),
-              ];
-            })}
+      <section className="card">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="section-title">Ingresos</h2>
+          <Link href={`/ingresos?m=${month}`} className="text-sm text-accent">Marcar cobrados ›</Link>
+        </div>
+        <Rows d={d} month={month} lines={d.lines.filter((l) => l.section === "ingreso")} income />
+        {puntuales.length > 0 && <p className="mt-2 text-xs text-muted">Más {fmt0(puntuales.reduce((a, i) => a + Number(i.amount), 0))} de ingresos puntuales.</p>}
+      </section>
 
-            {modo === "ajustes" && (
-              <>
-                <tr><td colSpan={15} className="pt-4 text-xs font-semibold uppercase tracking-wide text-accent">Gastos variables</td></tr>
-                <tr>
-                  <td className="sticky left-0 bg-surface">Gasto variable real</td>
-                  {sums.map((s) => <td key={s.month} className="tnum px-2 text-right"><Link href={`/gastos?m=${s.month}`} className="hover:text-accent">{fmt0(s.variableReal)}</Link></td>)}
-                  <td className="tnum px-2 text-right">{fmt0(yearTotal((i) => sums[i].variableReal))}</td>
-                </tr>
-                <tr>
-                  <td className="sticky left-0 bg-surface">Desviación (previsto − real)</td>
-                  {sums.map((s) => <td key={s.month} className={`tnum px-2 text-right ${s.desviacion < 0 ? "text-bad" : "text-good"}`}>{fmt0(s.desviacion)}</td>)}
-                  <td className="tnum px-2 text-right">{fmt0(yearTotal((i) => sums[i].desviacion))}</td>
-                </tr>
-                <tr>
-                  <td className="sticky left-0 bg-surface text-ink2">Mes</td>
-                  {sums.map((s) => (
-                    <td key={s.month} className={`px-2 text-right text-xs ${s.periodo === "actual" ? "font-semibold text-accent" : "text-muted"}`}
-                      title={s.periodo === "pasado" ? "Usa el gasto real" : s.periodo === "actual" ? "Usa lo previsto, o lo real si ya lo supera" : "Usa la provisión"}>
-                      {s.periodo === "pasado" ? "real" : s.periodo === "actual" ? "en curso" : "previsto"}
-                    </td>
-                  ))}
-                  <td></td>
-                </tr>
-                {totalRow("Gasto variable considerado", (i) => sums[i].variableConsiderado)}
-                <tr><td colSpan={15} className="h-3"></td></tr>
-                {totalRow("Total gastos", (i) => sums[i].totalGastos)}
-                {totalRow("Resultado (ingresos − gastos)", (i) => sums[i].resultado)}
-                <tr>
-                  <td className="sticky left-0 bg-surface">Aportación neta a inversión</td>
-                  {sums.map((s) => <td key={s.month} className="tnum px-2 text-right">{fmt0(s.inversion)}</td>)}
-                  <td className="tnum px-2 text-right">{fmt0(yearTotal((i) => sums[i].inversion))}</td>
-                </tr>
-                {totalRow("Resultado tras inversión", (i) => sums[i].resultadoTrasInversion)}
-                <tr>
-                  <td className="sticky left-0 bg-surface text-ink2">Saldo fondo anuales (fin de mes)</td>
-                  {sums.map((s) => <td key={s.month} className={`tnum px-2 text-right text-ink2 ${s.fondoAnuales < 0 ? "text-bad" : ""}`}>{fmt0(s.fondoAnuales)}</td>)}
-                  <td></td>
-                </tr>
-              </>
-            )}
-          </tbody>
-        </table>
+      <section className="card">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="section-title">Gastos fijos</h2>
+          <Link href={`/ingresos?m=${month}`} className="text-sm text-accent">Marcar pagados ›</Link>
+        </div>
+        <Rows d={d} month={month} lines={d.lines.filter((l) => l.section === "fijo")} income={false} />
+        <p className="mt-2 text-xs text-muted">Lo pendiente se cuenta con el importe del plan hasta que llegue. La hucha de anuales se aparta cada mes.</p>
+      </section>
+
+      <section className="card space-y-2.5">
+        <div className="flex items-baseline justify-between">
+          <h2 className="section-title">Gasto libre</h2>
+          <span className="tnum text-sm"><b>{fmt0(libre.gastado)}</b> de {fmt0(libre.presupuesto)}</span>
+        </div>
+        <Meter value={libre.presupuesto ? libre.gastado / libre.presupuesto : 0} mark={mark} tone={libre.gastado > libre.presupuesto ? "bad" : "accent"} />
+        <div className="flex justify-between text-sm">
+          <span className="text-ink2">{s.periodo === "pasado" ? "Gastado al final" : "Previsión a fin de mes"}</span>
+          <span className={`tnum font-semibold ${libre.previsto > libre.presupuesto ? "text-bad" : ""}`}>
+            {fmt0(libre.previsto)} · {libre.previsto <= libre.presupuesto ? `sobran ${fmt0(libre.presupuesto - libre.previsto)}` : `${fmt0(libre.previsto - libre.presupuesto)} de más`}
+          </span>
+        </div>
+        {porCuenta.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 text-xs text-ink2">
+            {porCuenta.map((c) => (
+              <span key={c.name} className="rounded-full bg-line/50 px-2.5 py-1">{c.name} {fmt0(c.total)}{libre.gastado > 0 ? ` (${Math.round((c.total / libre.gastado) * 100)} %)` : ""}</span>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-muted">Un solo bote para todo lo que no es fijo, de todas tus cuentas. <Link href={`/gastos?m=${month}`} className="text-accent">Ver movimientos ›</Link></p>
+      </section>
+
+      {house.budgets.map(({ account, budget, spent }) => {
+        const prev = s.periodo === "actual" && s.ritmo ? (s.ritmo.dia < 7 ? spent + (budget * (s.ritmo.dias - s.ritmo.dia)) / s.ritmo.dias : (spent / s.ritmo.dia) * s.ritmo.dias) : s.periodo === "pasado" ? spent : budget;
+        return (
+          <section key={account.uid} className="card space-y-2.5">
+            <div className="flex items-baseline justify-between">
+              <h2 className="section-title">Casa · {account.label}</h2>
+              <span className="tnum text-sm"><b>{fmt0(spent)}</b> de {fmt0(budget)}</span>
+            </div>
+            <Meter value={spent / budget} mark={mark} tone={prev > budget ? "warn" : "accent"} />
+            <div className="flex justify-between text-sm">
+              <span className="text-ink2">{s.periodo === "pasado" ? "Gastado al final" : "Previsión a fin de mes"}</span>
+              <span className={`tnum font-semibold ${prev > budget ? "text-bad" : ""}`}>{fmt0(prev)} · {prev <= budget ? `sobran ${fmt0(budget - prev)}` : `${fmt0(prev - budget)} de más`}</span>
+            </div>
+            <p className="text-xs text-muted">Presupuesto entre los dos. Aparte del tuyo: en tu presupuesto cuenta tu aportación. <Link href={`/casa?m=${month}`} className="text-accent">Ver casa ›</Link></p>
+          </section>
+        );
+      })}
+
+      <div className="flex flex-wrap gap-2">
+        <Link href="/plan" className="btn">Editar mi plan</Link>
+        <Link href="/presupuesto/tabla" className="btn-ghost">Tabla de 12 meses</Link>
       </div>
     </div>
   );
