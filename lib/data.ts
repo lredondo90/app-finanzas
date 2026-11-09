@@ -43,7 +43,7 @@ export async function loadYear(yearParam?: number): Promise<YearData> {
       supabase.from("expenses").select("created_at, notes").order("created_at", { ascending: false }).limit(50),
       supabase.from("bank_connections").select("id, aspsp_name, accounts").order("created_at"),
       supabase.from("fund_holdings").select("*").order("name"),
-      supabase.from("bank_movements").select("date, description, amount").or("description.ilike.%quantity:%,description.ilike.%fondos de inversion%").order("date"),
+      supabase.from("bank_movements").select("date, description, amount").or("description.ilike.%quantity:%,description.ilike.%fondos de inversion%,action.eq.inversion").order("date"),
     ]);
 
   // Última carga por banco (fecha de la importación y último movimiento incluido) y último gasto apuntado a mano

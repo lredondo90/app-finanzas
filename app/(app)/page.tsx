@@ -4,6 +4,7 @@ import Hero from "@/components/Hero";
 import Meter from "@/components/Meter";
 import MonthPicker, { currentMonth } from "@/components/MonthPicker";
 import MovementList from "@/components/MovementList";
+import { deleteExpense } from "@/app/actions";
 import SyncButton from "@/components/SyncButton";
 import SyncOnOpen from "@/components/SyncOnOpen";
 import { I, Icon } from "@/components/navItems";
@@ -155,7 +156,15 @@ export default async function Hoy({ searchParams }: { searchParams: Promise<{ m?
           <Link href={`/gastos?m=${month}`} className="text-sm text-accent">Ver todos ›</Link>
         </div>
         {recientes.length
-          ? <MovementList expenses={recientes} categories={d.categories} />
+          ? <MovementList expenses={recientes} categories={d.categories} edit={(e) => (
+              <>
+                <ExpenseForm compact expense={e} categories={d.categories} methods={d.paymentMethods} defaultDate={e.date} />
+                <div className="mt-3 flex items-center justify-between">
+                  <Link href={`/gastos?m=${month}`} className="text-xs text-accent">Más opciones en Movimientos ›</Link>
+                  <form action={deleteExpense}><input type="hidden" name="id" value={e.id} /><button className="text-xs text-bad">Eliminar</button></form>
+                </div>
+              </>
+            )} />
           : <p className="py-6 text-center text-sm text-muted">Sin gastos en {MONTHS[month - 1].toLowerCase()} todavía.</p>}
       </section>
 
