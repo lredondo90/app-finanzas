@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { getUser, loadYear } from "@/lib/data";
 import { EXTRA_MONTHS, extraValue, normalValue } from "@/lib/plan";
 import { createClient } from "@/lib/supabase/server";
+import { refreshNetWorth } from "./importActions";
 
 const str = (f: FormData, k: string) => {
   const v = f.get(k);
@@ -83,12 +84,17 @@ export async function saveExpense(form: FormData) {
   };
   if (id) await check(supabase.from("expenses").update(row).eq("id", id));
   else await check(supabase.from("expenses").insert(row));
+  await refreshNetWorth();
   done();
 }
 
 export async function deleteExpense(form: FormData) {
   const { supabase } = await getUser();
-  await check(supabase.from("expenses").delete().eq("id", String(form.get("id"))));
+  const id = String(form.get("id"));
+  // Si venía del banco, el movimiento queda como «no contar» (así no vuelve a aparecer como gasto)
+  await supabase.from("bank_movements").update({ action: "ignorar", category_id: null }).eq("expense_id", id);
+  await check(supabase.from("expenses").delete().eq("id", id));
+  await refreshNetWorth();
   done();
 }
 
@@ -150,12 +156,14 @@ export async function saveOneOffIncome(form: FormData) {
     amount: numOrNull(form.get("amount")) ?? 0,
     notes: str(form, "notes"),
   }));
+  await refreshNetWorth();
   done();
 }
 
 export async function deleteOneOffIncome(form: FormData) {
   const { supabase } = await getUser();
   await check(supabase.from("one_off_incomes").delete().eq("id", String(form.get("id"))));
+  await refreshNetWorth();
   done();
 }
 
@@ -213,12 +221,14 @@ export async function savePlan(form: FormData) {
   };
   if (id) await check(supabase.from("savings_plans").update(row).eq("id", id));
   else await check(supabase.from("savings_plans").insert({ ...row, sort_order: Date.now() % 100000 }));
+  await refreshNetWorth();
   done();
 }
 
 export async function deletePlan(form: FormData) {
   const { supabase } = await getUser();
   await check(supabase.from("savings_plans").delete().eq("id", String(form.get("id"))));
+  await refreshNetWorth();
   done();
 }
 
@@ -227,6 +237,7 @@ export async function setPlanExtra(planId: string, year: number, month: number, 
   const parsed = numOrNull(value);
   if (parsed == null) await check(supabase.from("savings_extras").delete().eq("plan_id", planId).eq("year", year).eq("month", month));
   else await check(supabase.from("savings_extras").upsert({ plan_id: planId, year, month, amount: parsed }, { onConflict: "plan_id,year,month" }));
+  await refreshNetWorth();
   done();
 }
 
@@ -244,12 +255,14 @@ export async function saveInvestment(form: FormData) {
       notes: str(form, "notes"),
     }),
   );
+  await refreshNetWorth();
   done();
 }
 
 export async function deleteInvestment(form: FormData) {
   const { supabase } = await getUser();
   await check(supabase.from("investments").delete().eq("id", String(form.get("id"))));
+  await refreshNetWorth();
   done();
 }
 
@@ -258,6 +271,7 @@ export async function setAssetPrice(asset: string, value: string) {
   const parsed = numOrNull(value);
   if (parsed == null) await check(supabase.from("asset_prices").delete().eq("asset", asset));
   else await check(supabase.from("asset_prices").upsert({ user_id: user.id, asset, price: parsed, updated_at: new Date().toISOString() }, { onConflict: "user_id,asset" }));
+  await refreshNetWorth();
   done();
 }
 
@@ -268,12 +282,14 @@ export async function saveBank(form: FormData) {
   const row = { name: str(form, "name") ?? "Cuenta", balance: numOrNull(form.get("balance")) ?? 0 };
   if (id) await check(supabase.from("bank_accounts").update(row).eq("id", id));
   else await check(supabase.from("bank_accounts").insert({ ...row, sort_order: Date.now() % 100000 }));
+  await refreshNetWorth();
   done();
 }
 
 export async function deleteBank(form: FormData) {
   const { supabase } = await getUser();
   await check(supabase.from("bank_accounts").delete().eq("id", String(form.get("id"))));
+  await refreshNetWorth();
   done();
 }
 
@@ -382,6 +398,7 @@ export async function setLineNextMonth(lineId: string, value: boolean) {
 export async function setBankCounted(form: FormData) {
   const { supabase } = await getUser();
   await check(supabase.from("bank_accounts").update({ counted: form.get("counted") === "1" }).eq("id", String(form.get("id"))));
+  await refreshNetWorth();
   done();
 }
 
@@ -407,12 +424,14 @@ export async function saveHolding(form: FormData) {
     row.price_date = price != null ? new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Madrid" }) : null;
   }
   await check(supabase.from("fund_holdings").upsert(row, { onConflict: "user_id,isin" }));
+  await refreshNetWorth();
   done();
 }
 
 export async function deleteHolding(form: FormData) {
   const { supabase } = await getUser();
   await check(supabase.from("fund_holdings").delete().eq("isin", String(form.get("isin"))));
+  await refreshNetWorth();
   done();
 }
 

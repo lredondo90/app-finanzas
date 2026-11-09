@@ -101,3 +101,6 @@ table.data td {
 li:has(input[value="conjunta"]:checked) .joint-only { display: grid; }
 .bills-only { display: none; }
 li:has(input[value="recibos"]:checked) .bills-only { display: block; }
+
+/* Safari: sin el triángulo de <details> (los movimientos se abren al tocarlos) */
+summary::-webkit-details-marker { display: none; }

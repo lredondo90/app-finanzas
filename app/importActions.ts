@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { type ImportAction, isGenericPattern, paymentMethodOf } from "@/lib/bankSuggest";
 import { accountingMonth, accountingWindow } from "@/lib/accounting";
 import { getUser } from "@/lib/data";
+import { saveNetWorthSnapshot } from "@/lib/wealth";
 
 export interface ConfirmRow {
   key: string;
@@ -140,26 +141,110 @@ export async function deleteImportRule(form: FormData) {
   revalidatePath("/importar");
 }
 
-/** Cambia qué es un movimiento ya guardado de una cuenta «sin revisar»: otra categoría, inversión o no contar */
+type Supa = Awaited<ReturnType<typeof getUser>>["supabase"];
+
+/**
+ * Vuelve a calcular un concepto fijo/ingreso en el mes contable de una fecha a partir de sus movimientos del banco:
+ * con movimientos queda pagado/recibido con el importe real; sin ninguno vuelve a pendiente (si el importe venía del banco).
+ */
+async function recomputeLine(supabase: Supa, lineId: string, date: string, removedAmount?: number) {
+  const [{ data: settings }, { data: line }] = await Promise.all([
+    supabase.from("settings").select("cutoff_day").maybeSingle(),
+    supabase.from("budget_lines").select("next_month").eq("id", lineId).maybeSingle(),
+  ]);
+  const cutoff: number = settings?.cutoff_day ?? 25;
+  const shift = !!line?.next_month;
+  const { year, month } = accountingMonth(date, shift, cutoff);
+  const { from, to } = accountingWindow(year, month, shift, cutoff);
+  const { data: movs } = await supabase.from("bank_movements").select("amount").eq("line_id", lineId).gte("date", from).lt("date", to);
+  const { data: existing } = await supabase.from("budget_values").select("adjusted").eq("line_id", lineId).eq("year", year).eq("month", month).maybeSingle();
+  let patch: Record<string, unknown>;
+  if (movs?.length) {
+    const real = Math.round(Math.abs(movs.reduce((s, x) => s + Number(x.amount), 0)) * 100) / 100;
+    patch = { done: true, done_date: new Date().toISOString().slice(0, 10), adjusted: real };
+  } else {
+    if (!existing) return;
+    patch = { done: false, done_date: null };
+    // El importe real venía de ese movimiento: se quita (uno escrito a mano se respeta)
+    if (removedAmount != null && existing.adjusted != null && Math.abs(Number(existing.adjusted) - Math.abs(removedAmount)) < 0.005) patch.adjusted = null;
+  }
+  if (existing) await supabase.from("budget_values").update(patch).eq("line_id", lineId).eq("year", year).eq("month", month);
+  else await supabase.from("budget_values").insert({ line_id: lineId, year, month, planned: 0, ...patch });
+}
+
+/**
+ * Cambia qué es un movimiento ya guardado del banco:
+ * «cat:<id>» gasto de esa categoría, «line:<id>» recibo o ingreso fijo de ese concepto,
+ * «puntual» ingreso puntual, «inversion» compra de fondos o «ignorar» no contar.
+ * Después se vuelve a guardar la foto del patrimonio del mes.
+ */
 export async function reclassifyMovement(form: FormData) {
   const { supabase } = await getUser();
   const id = String(form.get("id"));
   const to = String(form.get("to") ?? "");
   const { data: m } = await supabase.from("bank_movements").select("*").eq("id", id).maybeSingle();
   if (!m) return;
-  if (to.startsWith("cat:")) {
-    const category_id = to.slice(4);
-    if (m.expense_id) await supabase.from("expenses").update({ category_id }).eq("id", m.expense_id);
+  const amount = Number(m.amount);
+  const desc = m.detail && /^(bizum|transferencia)/i.test(m.description) ? `${m.description} · ${m.detail}` : m.description;
+
+  let action: string, category_id: string | null = null, line_id: string | null = null;
+  if (to.startsWith("cat:")) { action = "variable"; category_id = to.slice(4) || null; }
+  else if (to.startsWith("line:")) {
+    line_id = to.slice(5);
+    const { data: l } = await supabase.from("budget_lines").select("section").eq("id", line_id).maybeSingle();
+    if (!l) return;
+    action = l.section === "ingreso" ? "ingreso" : "fijo";
+  } else if (to === "puntual" || to === "inversion" || to === "ignorar") action = to;
+  else return;
+
+  // Gasto variable vinculado
+  let expense_id: string | null = m.expense_id;
+  if (action === "variable") {
+    if (expense_id) await supabase.from("expenses").update({ category_id }).eq("id", expense_id);
     else {
       const { data: exp } = await supabase.from("expenses").insert({
-        date: m.date, category_id, description: m.description, amount: -Number(m.amount), notes: `Importado de ${m.bank}`,
+        date: m.date, category_id, description: desc, amount: -amount, notes: `Importado de ${m.bank}`,
       }).select("id").single();
-      await supabase.from("bank_movements").update({ expense_id: exp?.id ?? null }).eq("id", id);
+      expense_id = exp?.id ?? null;
     }
-    await supabase.from("bank_movements").update({ action: "variable", category_id }).eq("id", id);
-  } else if (to === "inversion" || to === "ignorar") {
-    if (m.expense_id) await supabase.from("expenses").delete().eq("id", m.expense_id);
-    await supabase.from("bank_movements").update({ action: to, category_id: null, expense_id: null }).eq("id", id);
+  } else if (expense_id) {
+    await supabase.from("expenses").delete().eq("id", expense_id);
+    expense_id = null;
   }
+
+  // Ingreso puntual vinculado
+  let one_off_income_id: string | null = m.one_off_income_id;
+  if (action === "puntual") {
+    if (!one_off_income_id) {
+      const { data: inc } = await supabase.from("one_off_incomes").insert({
+        date: m.date, concept: desc, amount, notes: `Importado de ${m.bank}`,
+      }).select("id").single();
+      one_off_income_id = inc?.id ?? null;
+    }
+  } else if (one_off_income_id) {
+    await supabase.from("one_off_incomes").delete().eq("id", one_off_income_id);
+    one_off_income_id = null;
+  }
+
+  // Los movimientos de una cuenta conjunta guardan su categoría para Casa
+  const keepHouseCategory = m.action === "ignorar" && m.category_id && action === "ignorar";
+  await supabase.from("bank_movements").update({
+    action, line_id, expense_id, one_off_income_id,
+    category_id: action === "variable" ? category_id : keepHouseCategory ? m.category_id : null,
+  }).eq("id", id);
+
+  // Recibos/ingresos fijos: el concepto anterior y el nuevo quedan pagados o pendientes según sus movimientos
+  if (m.line_id && m.line_id !== line_id) await recomputeLine(supabase, m.line_id, m.date, amount);
+  if (line_id) await recomputeLine(supabase, line_id, m.date);
+
+  await refreshNetWorth();
   revalidatePath("/", "layout");
+}
+
+/** Vuelve a guardar la foto del patrimonio del mes tras cualquier cambio (sin bloquear si falla) */
+export async function refreshNetWorth() {
+  try {
+    const { supabase } = await getUser();
+    await saveNetWorthSnapshot(supabase);
+  } catch { /* se guardará en la próxima sincronización */ }
 }

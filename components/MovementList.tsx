@@ -13,8 +13,10 @@ const dayLabel = (date: string) => {
 };
 
 /** Movimientos agrupados por día, con icono de la categoría (estilo app del banco) */
-export default function MovementList({ expenses, categories, action }: {
-  expenses: Expense[]; categories: Category[]; action?: (e: Expense) => React.ReactNode;
+export default function MovementList({ expenses, categories, edit }: {
+  expenses: Expense[]; categories: Category[];
+  /** Si se da, cada movimiento se abre al tocarlo para editarlo */
+  edit?: (e: Expense) => React.ReactNode;
 }) {
   const groups: { date: string; items: Expense[] }[] = [];
   for (const e of expenses) {
@@ -35,15 +37,26 @@ export default function MovementList({ expenses, categories, action }: {
               const cat = catName(e.category_id);
               const ic = categoryIcon(cat);
               const amount = Number(e.amount);
-              return (
-                <li key={e.id} className="flex items-center gap-3 py-2.5">
+              const row = (
+                <>
                   <span className="icon-tile" style={{ background: `rgb(${ic.rgb} / 0.14)` }} aria-hidden>{ic.emoji}</span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{e.description ?? "—"}</div>
                     <div className="truncate text-xs text-muted">{cat}{e.payment_method ? ` · ${e.payment_method}` : ""}</div>
                   </div>
                   <div className={`tnum shrink-0 font-semibold ${amount < 0 ? "text-good" : ""}`}>{fmt(-amount)}</div>
-                  {action?.(e)}
+                </>
+              );
+              if (!edit) return <li key={e.id} className="flex items-center gap-3 py-2.5">{row}</li>;
+              return (
+                <li key={e.id}>
+                  <details className="group">
+                    <summary className="flex cursor-pointer list-none items-center gap-3 py-2.5">
+                      {row}
+                      <span className="shrink-0 text-xs text-muted transition group-open:rotate-90" aria-hidden>›</span>
+                    </summary>
+                    <div className="mb-3 rounded-2xl bg-page p-3">{edit(e)}</div>
+                  </details>
                 </li>
               );
             })}
