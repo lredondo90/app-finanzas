@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { type ImportAction, isGenericPattern, paymentMethodOf } from "@/lib/bankSuggest";
-import { accountingMonth, accountingWindow } from "@/lib/accounting";
+import { periodOf, periodWindow } from "@/lib/accounting";
+import { loadPeriods, reconcileLines } from "@/lib/periods";
 import { getUser } from "@/lib/data";
 import { saveNetWorthSnapshot } from "@/lib/wealth";
 
@@ -29,13 +30,6 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
   try {
     let gastos = 0, fijos = 0, ingresos = 0, puntuales = 0, otros = 0;
     const touched = new Set<string>(); // line|year|month
-    const [{ data: settings }, { data: lineFlags }] = await Promise.all([
-      supabase.from("settings").select("cutoff_day").maybeSingle(),
-      supabase.from("budget_lines").select("id, next_month"),
-    ]);
-    const cutoff: number = settings?.cutoff_day ?? 25;
-    const shifts = (lineId: string) => !!(lineFlags ?? []).find((l) => l.id === lineId)?.next_month;
-
     let withAccount = true; // si la base de datos aún no tiene la columna account_uid, se guarda sin ella
     for (const r of rows) {
       const base = {
@@ -77,9 +71,7 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
         await supabase.from("bank_movements").update({ one_off_income_id: inc.id }).eq("id", inserted.id);
         puntuales++;
       } else if ((r.action === "fijo" || r.action === "ingreso") && r.line_id) {
-        // La nómina y los recibos marcados que llegan tras el día de corte cuentan para el mes siguiente
-        const am = accountingMonth(r.date, shifts(r.line_id), cutoff);
-        touched.add(`${r.line_id}|${am.year}|${am.month}`);
+        touched.add(`${r.line_id}|${r.date}`);
         if (r.action === "fijo") fijos++; else ingresos++;
       } else otros++;
 
@@ -97,10 +89,13 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
     }
 
     // Marca como recibido/pagado y, si se pide, usa el importe real del banco (suma de todos sus movimientos del mes)
-    for (const t of touched) {
+    // Ingresos y recibos cuentan de nómina a nómina (con las nóminas recién guardadas incluidas)
+    const periods = await loadPeriods(supabase);
+    const lineMonths = new Set([...touched].map((t) => { const [lineId, date] = t.split("|"); const am = periodOf(periods, date); return `${lineId}|${am.year}|${am.month}`; }));
+    for (const t of lineMonths) {
       const [lineId, y, m] = t.split("|");
       const year = Number(y), month = Number(m);
-      const { from, to } = accountingWindow(year, month, shifts(lineId), cutoff);
+      const { from, to } = periodWindow(periods, year, month);
       const { data: movs } = await supabase.from("bank_movements").select("amount").eq("line_id", lineId).gte("date", from).lt("date", to);
       const real = Math.round(Math.abs((movs ?? []).reduce((s, x) => s + Number(x.amount), 0)) * 100) / 100;
       const { data: existing } = await supabase.from("budget_values").select("planned").eq("line_id", lineId).eq("year", year).eq("month", month).maybeSingle();
@@ -114,6 +109,9 @@ export async function confirmBankImport(rows: ConfirmRow[], useRealAmounts: bool
         if (error) throw new Error(error.message);
       }
     }
+
+    // Una nómina nueva mueve el inicio del mes: se recoloca lo ya guardado
+    if (lineMonths.size) await reconcileLines(supabase, periods);
 
     // Lo revisado deja de estar pendiente
     const keys = rows.map((r) => r.key);
@@ -148,14 +146,9 @@ type Supa = Awaited<ReturnType<typeof getUser>>["supabase"];
  * con movimientos queda pagado/recibido con el importe real; sin ninguno vuelve a pendiente (si el importe venía del banco).
  */
 async function recomputeLine(supabase: Supa, lineId: string, date: string, removedAmount?: number) {
-  const [{ data: settings }, { data: line }] = await Promise.all([
-    supabase.from("settings").select("cutoff_day").maybeSingle(),
-    supabase.from("budget_lines").select("next_month").eq("id", lineId).maybeSingle(),
-  ]);
-  const cutoff: number = settings?.cutoff_day ?? 25;
-  const shift = !!line?.next_month;
-  const { year, month } = accountingMonth(date, shift, cutoff);
-  const { from, to } = accountingWindow(year, month, shift, cutoff);
+  const periods = await loadPeriods(supabase);
+  const { year, month } = periodOf(periods, date);
+  const { from, to } = periodWindow(periods, year, month);
   const { data: movs } = await supabase.from("bank_movements").select("amount").eq("line_id", lineId).gte("date", from).lt("date", to);
   const { data: existing } = await supabase.from("budget_values").select("adjusted").eq("line_id", lineId).eq("year", year).eq("month", month).maybeSingle();
   let patch: Record<string, unknown>;
@@ -236,6 +229,8 @@ export async function reclassifyMovement(form: FormData) {
   // Recibos/ingresos fijos: el concepto anterior y el nuevo quedan pagados o pendientes según sus movimientos
   if (m.line_id && m.line_id !== line_id) await recomputeLine(supabase, m.line_id, m.date, amount);
   if (line_id) await recomputeLine(supabase, line_id, m.date);
+  // Si se ha tocado una nómina cambia el inicio del mes: se recoloca lo demás
+  if (m.line_id || line_id) await reconcileLines(supabase);
 
   await refreshNetWorth();
   revalidatePath("/", "layout");

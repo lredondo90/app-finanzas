@@ -15,8 +15,8 @@ export default function SyncOnOpen() {
     // Solo una vez al día por dispositivo: así volver a Inicio no lanza nada (la app va más ágil)
     const today = new Date().toLocaleDateString("en-CA");
     try {
-      if (localStorage.getItem("autoSync") === today) return;
-      localStorage.setItem("autoSync", today);
+      if (localStorage.getItem("autoSync2") === today) return;
+      localStorage.setItem("autoSync2", today);
     } catch { /* sin almacenamiento: el servidor ya limita a una vez al día */ }
     setState("syncing");
     syncBanks({ oncePerDay: true })
