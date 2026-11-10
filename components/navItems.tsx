@@ -16,16 +16,17 @@ export const I = {
 
 /** Las 5 pestañas de abajo (móvil) */
 export const TABS = [
-  { href: "/", label: "Hoy", icon: I.home },
+  { href: "/", label: "Este mes", icon: I.home },
+  { href: "/hoy", label: "Gasto", icon: I.budget },
   { href: "/gastos", label: "Movimientos", icon: I.list },
-  { href: "/presupuesto", label: "Presupuesto", icon: I.budget },
-  { href: "/ano", label: "Año", icon: I.invest },
-  { href: "/patrimonio", label: "Patrimonio", icon: I.wealth },
+  { href: "/presupuesto", label: "Presupuesto", icon: I.annual },
+  { href: "/mas", label: "Más", icon: I.more },
 ];
 
-/** Barra lateral (escritorio): las pestañas y lo demás */
-export const NAV_ALL = [
-  ...TABS,
+/** Lo que cuelga de «Más» en el móvil */
+export const MORE = [
+  { href: "/ano", label: "Año", icon: I.invest },
+  { href: "/patrimonio", label: "Patrimonio", icon: I.wealth },
   { href: "/plan", label: "Mi plan", icon: I.plan },
   { href: "/casa", label: "Casa", icon: I.house },
   { href: "/ingresos", label: "Ingresos y recibos", icon: I.income },
@@ -34,6 +35,8 @@ export const NAV_ALL = [
   { href: "/ajustes", label: "Ajustes", icon: I.gear },
 ];
 
+/** Barra lateral (escritorio): las pestañas (sin «Más») y lo demás */
+export const NAV_ALL = [...TABS.filter((t) => t.href !== "/mas"), ...MORE];
 
 export function Icon({ d, className = "h-5 w-5" }: { d: string; className?: string }) {
   return (

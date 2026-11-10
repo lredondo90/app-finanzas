@@ -1,12 +1,14 @@
 import Link from "next/link";
 import Hero from "@/components/Hero";
-import { Icon, NAV_ALL } from "@/components/navItems";
+import { Icon, MORE } from "@/components/navItems";
 import { signOut } from "@/app/actions";
 import { getUser } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 const HINT: Record<string, string> = {
+  "/ano": "Cómo vas a acabar el año frente a tu plan",
+  "/patrimonio": "Cuentas, fondos y evolución",
   "/plan": "Tu plan del año, cambios puntuales y recibos anuales",
   "/casa": "Cuentas conjuntas: aportaciones, gastos de casa y presupuesto",
   "/ingresos": "Nómina, alquileres y recibos del mes",
@@ -17,7 +19,7 @@ const HINT: Record<string, string> = {
 
 export default async function MasPage() {
   const { user } = await getUser();
-  const items = NAV_ALL.filter((i) => HINT[i.href]);
+  const items = MORE;
   return (
     <div className="space-y-4">
       <Hero kicker="Mis Finanzas" title="Más opciones" sub={user.email} />
