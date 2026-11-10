@@ -181,6 +181,9 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number; oncePerDay?: 
             return { ...r, action: "fijo" as const, line_id: j.contributionLineId, category_id: null, learned: false,
               reason: `Tu aportación a ${j.label}` };
           }
+          // Una aportación a la conjunta (CASA N, COMIDA…) solo la marca tu transferencia: lo demás se revisa a mano
+          if (r.line_id && joint.some((x) => x.contributionLineId === r.line_id))
+            return { ...r, learned: false, reason: "Revisar: este concepto solo cuenta tu transferencia a la cuenta conjunta" };
           return r;
         }
         return { ...r, action: "ignorar" as const, category_id: null, line_id: null, learned: false,
