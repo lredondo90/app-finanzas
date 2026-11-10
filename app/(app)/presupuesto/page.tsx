@@ -41,7 +41,7 @@ function Rows({ d, month, lines, income }: { d: YearData; month: number; lines: 
           return (
             <tr key={l.id} className="border-t border-line/60">
               <td className="py-2 pr-2">
-                <span className="font-medium">{l.name}</span>{" "}
+                <Link href={`/?m=${month}&l=${l.id}#l-${l.id}`} className="font-medium text-accent">{l.name}</Link>{" "}
                 {l.is_annual_fund ? <span className="text-xs text-muted">hucha</span>
                   : done ? <span className="text-xs font-semibold text-good">✓</span>
                   : <span className="text-xs font-semibold text-warn">pendiente</span>}
@@ -103,7 +103,7 @@ export default async function PresupuestoPage({ searchParams }: { searchParams: 
           <Link href={`/ingresos?m=${month}`} className="text-sm text-accent">Marcar pagados ›</Link>
         </div>
         <Rows d={d} month={month} lines={d.lines.filter((l) => l.section === "fijo")} income={false} />
-        <p className="mt-2 text-xs text-muted">Lo pendiente se cuenta con el importe del plan hasta que llegue. La hucha de anuales se aparta cada mes.</p>
+        <p className="mt-2 text-xs text-muted">Toca un concepto para ver sus movimientos del banco y cambiarlos o quitarlos. Lo pendiente se cuenta con el importe del plan hasta que llegue. La hucha de anuales se aparta cada mes.</p>
       </section>
 
       <section className="card space-y-2.5">

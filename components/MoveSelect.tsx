@@ -64,6 +64,16 @@ export default function MoveSelect({ m, categories, lines, annuals = [], classNa
           <option value="ignorar">No contar (traspaso…)</option>
         </optgroup>
       </select>
+      {value !== "ignorar" && (
+        <button type="button" disabled={busy} className="mt-1.5 min-h-[2.75rem] rounded-full border border-bad/40 px-4 text-sm text-bad disabled:opacity-50"
+          onClick={() => {
+            const fd = new FormData();
+            fd.set("id", m.id);
+            fd.set("to", "ignorar");
+            setSaved(false);
+            start(async () => { await reclassifyMovement(fd); setSaved(true); });
+          }}>Quitar: que no cuente</button>
+      )}
       <p className="mt-1 h-4 text-xs" aria-live="polite">
         {busy ? <span className="text-muted">Guardando…</span> : saved ? <span className="font-semibold text-good">✓ Guardado</span> : null}
       </p>
