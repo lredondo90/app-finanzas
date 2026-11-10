@@ -2,7 +2,8 @@ import Link from "next/link";
 import Hero from "@/components/Hero";
 import Meter from "@/components/Meter";
 import MonthPicker, { currentMonth } from "@/components/MonthPicker";
-import { windowLabel } from "@/lib/accounting";
+import { periodLabel } from "@/lib/accounting";
+import { loadPeriods } from "@/lib/periods";
 import { firstMonth, fmt0, isDone, lineValue, plannedValue } from "@/lib/finance";
 import { getUser, loadYear } from "@/lib/data";
 import { loadHouseMonth } from "@/lib/houseData";
@@ -71,7 +72,7 @@ export default async function PresupuestoPage({ searchParams }: { searchParams: 
   const house = await loadHouseMonth(supabase, d.year, month);
   const mp = monthPlan(d, month);
   const { s, libre } = mp;
-  const cutoff = d.settings?.cutoff_day ?? 25;
+  const periods = await loadPeriods(supabase);
   const mark = s.ritmo ? s.ritmo.dia / s.ritmo.dias : null;
   const porCuenta = libreByAccount(d, month);
   const puntuales = d.oneOffIncomes.filter((i) => i.date.startsWith(`${d.year}-`) && Number(i.date.slice(5, 7)) === month);
@@ -84,7 +85,7 @@ export default async function PresupuestoPage({ searchParams }: { searchParams: 
         value={fmt0(mp.ahorroPrevisto)}
         sub={<>
           <span className={mp.desviacion >= 0 ? "text-emerald-300" : "text-rose-300"}>{mp.desviacion >= 0 ? "+" : "−"}{fmt0(Math.abs(mp.desviacion))} {mp.desviacion >= 0 ? "sobre" : "por debajo del"} plan</span>
-          {" · "}plan {fmt0(mp.plan.ahorro)} · nómina del {windowLabel(d.year, month, cutoff)}
+          {" · "}plan {fmt0(mp.plan.ahorro)} · ingresos y recibos del {periodLabel(periods, d.year, month)}
         </>} />
 
       <section className="card">

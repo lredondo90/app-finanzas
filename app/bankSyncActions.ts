@@ -11,6 +11,7 @@ import { RATE_LIMIT, type StoredAccount, deleteSession, enableBankingConfigured,
 import { jointAccounts, matchContribution } from "@/lib/house";
 import { refreshFundPrices, saveNetWorthSnapshot } from "@/lib/wealth";
 import { type ConfirmRow, confirmBankImport } from "./importActions";
+import { reconcileLines } from "@/lib/periods";
 
 const STATE_COOKIE = "eb_state";
 
@@ -71,7 +72,7 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number; oncePerDay?: 
   const due = conns.filter((c) => chosen(c).length > 0 && !blockedToday(c)).filter((c) => !opts.onlyIfStaleHours || !c.last_sync_at || now - new Date(c.last_sync_at).getTime() > opts.onlyIfStaleHours * 3600000)
     // Sola, solo la primera vez que abres la app cada día
     .filter((c) => !opts.oncePerDay || !c.last_sync_at || day(new Date(c.last_sync_at)) !== day(now));
-  if (!due.length) { await refreshWealth(supabase); return result; }
+  if (!due.length) { await reconcileLines(supabase); await refreshWealth(supabase); revalidatePath("/", "layout"); return result; }
 
   const [categories, lines, rules, expenses, settingsRes] = await Promise.all([
     supabase.from("categories").select("*").order("sort_order"),
@@ -231,6 +232,8 @@ export async function syncBanks(opts: { onlyIfStaleHours?: number; oncePerDay?: 
       await supabase.from("bank_connections").update({ last_error: msg, last_sync_at: new Date().toISOString() }).eq("id", c.id);
     }
   }
+  // Ingresos y recibos de nómina a nómina: se recoloca lo guardado por si ha llegado la nómina
+  await reconcileLines(supabase);
   await refreshWealth(supabase);
   revalidatePath("/", "layout");
   return result;

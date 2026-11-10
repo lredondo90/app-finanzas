@@ -6,7 +6,8 @@ import MoveSelect from "@/components/MoveSelect";
 import SyncButton from "@/components/SyncButton";
 import SyncOnOpen from "@/components/SyncOnOpen";
 import { setLineDone } from "@/app/actions";
-import { accountingMonth, accountingWindow } from "@/lib/accounting";
+import { periodOf, periodWindow } from "@/lib/accounting";
+import { loadPeriods } from "@/lib/periods";
 import { MONTHS, firstMonth, fmt, fmt0, monthSummary, plannedValue } from "@/lib/finance";
 import { getUser, loadYear } from "@/lib/data";
 import { loadHouseMonth } from "@/lib/houseData";
@@ -118,23 +119,20 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
   }
 
   const { supabase } = await getUser();
-  const cutoff = d.settings?.cutoff_day ?? 25;
-  // Movimientos del banco enlazados a un ingreso o recibo: desde el corte del mes anterior hasta fin de mes
-  const win = accountingWindow(d.year, month, true, cutoff);
-  const end = accountingWindow(d.year, month, false, cutoff).to;
+  // Ingresos y recibos cuentan de nómina a nómina
+  const periods = await loadPeriods(supabase);
+  const win = periodWindow(periods, d.year, month);
   const [{ count: pendingCount = 0 }, { count: connCount = 0 }, house, { data: linked }] = await Promise.all([
     supabase.from("bank_pending").select("*", { count: "exact", head: true }),
     supabase.from("bank_connections").select("*", { count: "exact", head: true }),
     loadHouseMonth(supabase, d.year, month),
     supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, line_id")
-      .not("line_id", "is", null).gte("date", win.from).lt("date", end).order("date", { ascending: false }),
+      .not("line_id", "is", null).gte("date", win.from).lt("date", win.to).order("date", { ascending: false }),
   ]);
   const moves = new Map<string, LineMove[]>();
   for (const m of linked ?? []) {
     const line = d.lines.find((l) => l.id === m.line_id);
     if (!line) continue;
-    const am = accountingMonth(m.date, !!line.next_month, cutoff);
-    if (am.year !== d.year || am.month !== month) continue;
     moves.set(line.id, [...(moves.get(line.id) ?? []), { ...m, amount: Number(m.amount) }]);
   }
 
