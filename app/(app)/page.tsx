@@ -33,7 +33,7 @@ function Check({ done }: { done: boolean }) {
 }
 
 /** Ingresos o gastos fijos del mes: una línea por concepto con ✓ o «Pendiente». Al tocarla se ve el movimiento del banco y se puede cambiar */
-function Checklist({ d, s, month, section, moves }: { d: YearData; s: Summary; month: number; section: "ingreso" | "fijo"; moves: Map<string, LineMove[]> }) {
+function Checklist({ d, s, month, section, moves, open }: { d: YearData; s: Summary; month: number; section: "ingreso" | "fijo"; moves: Map<string, LineMove[]>; open?: string }) {
   const income = section === "ingreso";
   const rows = s.lineas.filter((l) => l.line.section === section && (l.value !== 0 || l.done));
   const st = s.estado[section];
@@ -54,7 +54,7 @@ function Checklist({ d, s, month, section, moves }: { d: YearData; s: Summary; m
           const ok = done || fund;
           return (
             <li key={line.id}>
-              <details className="group">
+              <details className="group scroll-mt-4" id={`l-${line.id}`} open={open === line.id}>
                 <summary className="flex min-h-[3.25rem] cursor-pointer list-none items-center gap-3 py-2">
                   <Check done={ok} />
                   <div className="min-w-0 flex-1">
@@ -103,7 +103,7 @@ function Checklist({ d, s, month, section, moves }: { d: YearData; s: Summary; m
   );
 }
 
-export default async function EsteMes({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
+export default async function EsteMes({ searchParams }: { searchParams: Promise<{ m?: string; l?: string }> }) {
   const sp = await searchParams;
   const d = await loadYear();
   const first = firstMonth(d);
@@ -175,8 +175,8 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} />
-        <Checklist d={d} s={s} month={month} section="fijo" moves={moves} />
+        <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} open={sp.l} />
+        <Checklist d={d} s={s} month={month} section="fijo" moves={moves} open={sp.l} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
