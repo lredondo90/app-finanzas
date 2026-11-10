@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 const HINT: Record<string, string> = {
   "/ano": "Cómo vas a acabar el año frente a tu plan",
   "/patrimonio": "Cuentas, fondos y evolución",
+  "/inquilino": "Lo que te debe, lo que te paga y la lista para enviársela",
+  "/anuales": "Cuáles has pagado este año y cuáles faltan",
   "/plan": "Tu plan del año, cambios puntuales y recibos anuales",
   "/casa": "Cuentas conjuntas: aportaciones, gastos de casa y presupuesto",
   "/ingresos": "Nómina, alquileres y recibos del mes",

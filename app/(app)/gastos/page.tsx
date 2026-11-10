@@ -26,14 +26,19 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
   const mm = String(month).padStart(2, "0");
   const next = month === 12 ? `${d.year + 1}-01-01` : `${d.year}-${String(month + 1).padStart(2, "0")}-01`;
   const { data: movs } = await supabase.from("bank_movements")
-    .select("id, bank, date, description, detail, amount, action, category_id, line_id, expense_id")
+    .select("id, bank, date, description, detail, amount, action, category_id, line_id, expense_id, annual_id")
     .gte("date", `${d.year}-${mm}-01`).lt("date", next).order("date", { ascending: false }).order("created_at", { ascending: false });
-  const byExpense = new Map((movs ?? []).filter((m) => m.expense_id).map((m) => [m.expense_id as string, m]));
+  const { data: tenantRows } = await supabase.from("tenant_entries").select("movement_id").not("movement_id", "is", null);
+  const tenantIds = new Set((tenantRows ?? []).map((t) => t.movement_id as string));
+  const movsT = (movs ?? []).map((m) => ({ ...m, tenant: tenantIds.has(m.id) }));
+  const byExpense = new Map(movsT.filter((m) => m.expense_id).map((m) => [m.expense_id as string, m]));
   // Los de las cuentas conjuntas (no cuentan, pero llevan su categoría para Casa) se editan en Casa
-  const others = sp.c ? [] : (movs ?? []).filter((m) => !m.expense_id && !(m.action === "ignorar" && m.category_id));
+  const others = sp.c ? [] : movsT.filter((m) => !m.expense_id && !(m.action === "ignorar" && m.category_id));
   const lineName = (id: string | null) => d.lines.find((l) => l.id === id)?.name;
-  const label = (m: { action: string; line_id: string | null }) =>
-    m.action === "fijo" ? `Recibo · ${lineName(m.line_id) ?? "sin concepto"}`
+  const label = (m: { action: string; line_id: string | null; annual_id: string | null; tenant: boolean }) =>
+    m.tenant ? "Del inquilino"
+    : m.annual_id ? `Recibo anual · ${d.annuals.find((a) => a.id === m.annual_id)?.name ?? ""}`
+    : m.action === "fijo" ? `Recibo · ${lineName(m.line_id) ?? "sin concepto"}`
     : m.action === "ingreso" ? `Ingreso · ${lineName(m.line_id) ?? "sin concepto"}`
     : m.action === "puntual" ? "Ingreso puntual" : m.action === "inversion" ? "Inversión" : "No cuenta";
   const defaultDate = `${d.year}-${String(month).padStart(2, "0")}-${String(Math.min(new Date().getDate(), 28)).padStart(2, "0")}`;
@@ -75,7 +80,7 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
               return (
                 <>
                   <label className="text-xs text-muted">Qué es (viene de {m.bank}). Se guarda al elegir</label>
-                  <MoveSelect m={m} categories={d.categories} lines={d.lines} className="mt-1" />
+                  <MoveSelect m={m} categories={d.categories} lines={d.lines} annuals={d.annuals} className="mt-1" />
                   <details className="mt-1">
                     <summary className="cursor-pointer list-none text-xs text-accent">Cambiar fecha, importe o descripción ›</summary>
                     <div className="mt-2"><ExpenseForm compact expense={e} categories={d.categories} methods={d.paymentMethods} defaultDate={e.date} /></div>
@@ -107,7 +112,7 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
                     <div className="mb-3 rounded-2xl bg-page p-3">
                       {m.detail && <p className="mb-2 text-xs text-muted">{m.detail}</p>}
                       <label className="text-xs text-muted">Qué es. Se guarda al elegir</label>
-                      <MoveSelect m={m} categories={d.categories} lines={d.lines} className="mt-1" />
+                      <MoveSelect m={m} categories={d.categories} lines={d.lines} annuals={d.annuals} className="mt-1" />
                     </div>
                   </details>
                 </li>

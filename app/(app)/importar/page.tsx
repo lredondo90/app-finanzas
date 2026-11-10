@@ -33,9 +33,14 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
   // Lo que se guardó solo de las cuentas «sin revisar» (p. ej. Trade Republic), por si quieres cambiar algo
   const directBanks = (conns.data ?? []).filter((c) => (c.accounts as StoredAccount[]).some((a) => a.sync && a.kind === "directa")).map((c) => c.aspsp_name);
   const { data: directRows } = directBanks.length
-    ? await supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, line_id, import_key")
+    ? await supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, line_id, import_key, annual_id")
       .in("bank", directBanks).gte("date", new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10)).order("date", { ascending: false }).limit(80)
     : { data: [] };
+  const [{ data: annuals }, { data: tenantRows }] = await Promise.all([
+    supabase.from("annual_expenses").select("id, name").order("sort_order"),
+    supabase.from("tenant_entries").select("movement_id").not("movement_id", "is", null),
+  ]);
+  const tenantIds = new Set((tenantRows ?? []).map((t) => t.movement_id as string));
   const [saved, pend] = (sp.sync ?? "").split("|").map(Number);
   const cats = categories.data ?? [];
   const ls = lines.data ?? [];
@@ -71,7 +76,7 @@ export default async function ImportarPage({ searchParams }: { searchParams: Pro
         <details className="card">
           <summary className="cursor-pointer list-none text-sm font-medium">Revisar movimientos de {directBanks.join(", ")} <span className="text-muted">({directRows!.length})</span></summary>
           <p className="mb-2 mt-1 text-xs text-muted">Se guardan solos en «Otros». Cambia aquí qué es cada uno: otra categoría, un recibo, un ingreso, inversión o «no contar».</p>
-          <DirectMovements categories={cats} lines={ls} rows={directRows!.map((r) => ({ ...r, amount: Number(r.amount), pending: r.import_key.includes("|pend|") }))} />
+          <DirectMovements categories={cats} lines={ls} annuals={annuals ?? []} rows={directRows!.map((r) => ({ ...r, amount: Number(r.amount), pending: r.import_key.includes("|pend|"), tenant: tenantIds.has(r.id) }))} />
         </details>
       )}
 

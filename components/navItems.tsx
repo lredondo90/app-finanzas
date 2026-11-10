@@ -27,6 +27,8 @@ export const TABS = [
 export const MORE = [
   { href: "/ano", label: "Año", icon: I.invest },
   { href: "/patrimonio", label: "Patrimonio", icon: I.wealth },
+  { href: "/inquilino", label: "Inquilino", icon: I.house },
+  { href: "/anuales", label: "Recibos anuales", icon: I.annual },
   { href: "/plan", label: "Mi plan", icon: I.plan },
   { href: "/casa", label: "Casa", icon: I.house },
   { href: "/ingresos", label: "Ingresos y recibos", icon: I.income },
