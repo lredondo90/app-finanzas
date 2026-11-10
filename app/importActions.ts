@@ -188,7 +188,25 @@ export async function reclassifyMovement(form: FormData) {
     if (!l) return;
     action = l.section === "ingreso" ? "ingreso" : "fijo";
   } else if (to === "puntual" || to === "inversion" || to === "ignorar") action = to;
+  else if (to === "inquilino" || to.startsWith("anual:") || to.startsWith("anualnew:")) action = "ignorar"; // no cuenta como gasto ni ingreso del mes
   else return;
+
+  // Recibo anual: uno de la lista o uno nuevo, que queda grabado con este importe y este mes para el año que viene
+  let annual_id: string | null = null;
+  if (to.startsWith("anual:")) {
+    annual_id = to.slice(6);
+    await supabase.from("annual_expenses").update({ amount: Math.abs(amount), pay_month: Number(m.date.slice(5, 7)) }).eq("id", annual_id);
+  } else if (to.startsWith("anualnew:")) {
+    const name = to.slice(9).trim() || m.description;
+    const { data: a } = await supabase.from("annual_expenses")
+      .insert({ name, amount: Math.abs(amount), pay_month: Number(m.date.slice(5, 7)), sort_order: Date.now() % 100000 }).select("id").single();
+    annual_id = a?.id ?? null;
+  }
+
+  // Inquilino: un gasto se suma a lo que te debe; un ingreso es un pago suyo y lo resta
+  if (to === "inquilino") {
+    await supabase.from("tenant_entries").upsert({ movement_id: id, date: m.date, concept: desc, amount: -amount }, { onConflict: "movement_id" });
+  } else await supabase.from("tenant_entries").delete().eq("movement_id", id);
 
   // Gasto variable vinculado
   let expense_id: string | null = m.expense_id;
@@ -220,9 +238,9 @@ export async function reclassifyMovement(form: FormData) {
   }
 
   // Los movimientos de una cuenta conjunta guardan su categoría para Casa
-  const keepHouseCategory = m.action === "ignorar" && m.category_id && action === "ignorar";
+  const keepHouseCategory = m.action === "ignorar" && m.category_id && action === "ignorar" && !annual_id && to !== "inquilino";
   await supabase.from("bank_movements").update({
-    action, line_id, expense_id, one_off_income_id,
+    action, line_id, expense_id, one_off_income_id, annual_id,
     category_id: action === "variable" ? category_id : keepHouseCategory ? m.category_id : null,
   }).eq("id", id);
 

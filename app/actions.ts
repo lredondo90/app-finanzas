@@ -466,3 +466,43 @@ export async function savePlanException(form: FormData) {
   if (!lineId || !(month >= 1 && month <= 12)) return;
   await setBudgetCell(lineId, Number(form.get("year")), month, "planned", String(form.get("value") ?? ""));
 }
+
+// ---------------- Inquilino ----------------
+/** Apunta a mano un gasto que te debe el inquilino o un pago que te hace (kind = "pago" resta) */
+export async function saveTenantEntry(form: FormData) {
+  const { supabase } = await getUser();
+  const amount = Math.abs(numOrNull(form.get("amount")) ?? 0);
+  if (!amount) return;
+  const pago = form.get("kind") === "pago";
+  await check(supabase.from("tenant_entries").insert({
+    date: str(form, "date") ?? new Date().toISOString().slice(0, 10),
+    concept: str(form, "concept") ?? (pago ? "Pago del inquilino" : "Gasto"),
+    amount: pago ? -amount : amount,
+  }));
+  done();
+}
+
+/** Carga un listado pegado: una línea por gasto, «fecha; concepto; importe» (fecha dd/mm/aaaa) */
+export async function importTenantList(form: FormData) {
+  const { supabase } = await getUser();
+  const rows: { date: string; concept: string; amount: number }[] = [];
+  for (const line of String(form.get("list") ?? "").split("\n")) {
+    const parts = line.split(/[;\t]/).map((x) => x.trim()).filter(Boolean);
+    if (parts.length < 3) continue;
+    const dm = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/.exec(parts[0]);
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(parts[0]) ? parts[0]
+      : dm ? `${dm[3].length === 2 ? `20${dm[3]}` : dm[3]}-${dm[2].padStart(2, "0")}-${dm[1].padStart(2, "0")}` : null;
+    const amount = Number(parts[parts.length - 1].replace(/[€\s]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."));
+    if (!iso || !Number.isFinite(amount) || !amount) continue;
+    rows.push({ date: iso, concept: parts.slice(1, -1).join(" · "), amount });
+  }
+  if (rows.length) await check(supabase.from("tenant_entries").insert(rows));
+  done();
+}
+
+export async function deleteTenantEntry(form: FormData) {
+  const { supabase } = await getUser();
+  const id = String(form.get("id"));
+  await check(supabase.from("tenant_entries").delete().eq("id", id));
+  done();
+}

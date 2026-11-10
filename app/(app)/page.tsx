@@ -76,7 +76,7 @@ function Checklist({ d, s, month, section, moves }: { d: YearData; s: Summary; m
                         <span className="tnum shrink-0 font-semibold">{fmt(m.amount)}</span>
                       </div>
                       <label className="mt-1.5 block text-xs text-muted">¿No es {line.name}? Cambia aquí qué es</label>
-                      <MoveSelect m={m} categories={d.categories} lines={d.lines} className="mt-1" />
+                      <MoveSelect m={m} categories={d.categories} lines={d.lines} annuals={d.annuals} className="mt-1" />
                     </div>
                   ))}
                   {!fund && ms.length === 0 && (
@@ -122,12 +122,14 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
   // Ingresos y recibos cuentan de nómina a nómina
   const periods = await loadPeriods(supabase);
   const win = periodWindow(periods, d.year, month);
-  const [{ count: pendingCount = 0 }, { count: connCount = 0 }, house, { data: linked }] = await Promise.all([
+  const [{ count: pendingCount = 0 }, { count: connCount = 0 }, house, { data: linked }, { data: tenant }, { data: paidAnnuals }] = await Promise.all([
     supabase.from("bank_pending").select("*", { count: "exact", head: true }),
     supabase.from("bank_connections").select("*", { count: "exact", head: true }),
     loadHouseMonth(supabase, d.year, month),
     supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, line_id")
       .not("line_id", "is", null).gte("date", win.from).lt("date", win.to).order("date", { ascending: false }),
+    supabase.from("tenant_entries").select("amount"),
+    supabase.from("bank_movements").select("annual_id").not("annual_id", "is", null).gte("date", `${d.year}-01-01`).lt("date", `${d.year + 1}-01-01`),
   ]);
   const moves = new Map<string, LineMove[]>();
   for (const m of linked ?? []) {
@@ -137,6 +139,8 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
   }
 
   const s = monthSummary(d, month);
+  const debe = (tenant ?? []).reduce((a, t) => a + Number(t.amount), 0);
+  const anualesPagados = new Set((paidAnnuals ?? []).map((x) => x.annual_id as string)).size;
   const gastado = s.variableReal;
   const tope = s.prevision;
   const queda = tope - gastado;
@@ -173,6 +177,17 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
       <div className="grid gap-4 lg:grid-cols-2">
         <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} />
         <Checklist d={d} s={s} month={month} section="fijo" moves={moves} />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Link href="/inquilino" className="card flex min-h-[3.5rem] items-center gap-3">
+          <span className="min-w-0 flex-1"><span className="block font-semibold">Tu inquilino te debe</span><span className="block truncate text-xs text-muted">Gastos que le cobras y lo que te va pagando</span></span>
+          <span className={`tnum text-lg font-semibold ${debe > 0.005 ? "text-bad" : "text-good"}`}>{fmt0(Math.max(0, debe))}</span><span className="text-muted">›</span>
+        </Link>
+        <Link href="/anuales" className="card flex min-h-[3.5rem] items-center gap-3">
+          <span className="min-w-0 flex-1"><span className="block font-semibold">Recibos anuales</span><span className="block truncate text-xs text-muted">Pagados {anualesPagados} de {d.annuals.length} este año</span></span>
+          <span className="text-muted">›</span>
+        </Link>
       </div>
     </div>
   );

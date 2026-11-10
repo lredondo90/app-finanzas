@@ -327,3 +327,28 @@ end $$;
 -- El tipo «conjunta», el concepto de tu aportación y el presupuesto de casa se guardan en bank_connections.accounts.
 alter table public.bank_movements add column if not exists account_uid text;
 create index if not exists bank_movements_account_idx on public.bank_movements (account_uid, date);
+-- ---------------------------------------------------------
+-- v7 · Recibos anuales marcados desde un movimiento y cuenta del inquilino
+-- ---------------------------------------------------------
+-- Un movimiento del banco puede ser el pago de un recibo anual (no cuenta como gasto del mes: sale de la hucha).
+alter table public.bank_movements add column if not exists annual_id uuid references public.annual_expenses(id) on delete set null;
+create index if not exists bank_movements_annual_idx on public.bank_movements (annual_id);
+
+-- Lo que debe el inquilino: importe positivo = gasto que le cobras; negativo = pago que te hace.
+create table if not exists public.tenant_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  date date not null,
+  concept text not null,
+  amount numeric(12,2) not null,
+  movement_id uuid unique references public.bank_movements(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists tenant_entries_user_date_idx on public.tenant_entries (user_id, date);
+alter table public.tenant_entries enable row level security;
+do $$ begin
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'tenant_entries') then
+    create policy "own rows" on public.tenant_entries for all to authenticated
+      using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+  end if;
+end $$;

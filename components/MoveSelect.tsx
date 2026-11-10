@@ -4,16 +4,20 @@ import { useState, useTransition } from "react";
 import { reclassifyMovement } from "@/app/importActions";
 import type { BudgetLine, Category } from "@/lib/types";
 
-export interface MoveRef { id: string; action: string; category_id: string | null; line_id: string | null }
+export interface MoveRef { id: string; action: string; category_id: string | null; line_id: string | null; annual_id?: string | null; tenant?: boolean }
 
 /** Valor del desplegable para lo que es ahora un movimiento del banco */
 export const moveValue = (m: MoveRef) =>
-  m.action === "variable" ? `cat:${m.category_id ?? ""}`
+  m.tenant ? "inquilino"
+  : m.annual_id ? `anual:${m.annual_id}`
+  : m.action === "variable" ? `cat:${m.category_id ?? ""}`
   : (m.action === "fijo" || m.action === "ingreso") && m.line_id ? `line:${m.line_id}`
   : m.action;
 
-/** Cambiar qué es un movimiento del banco ya guardado: gasto de una categoría, recibo, ingreso, inversión o no contar. Se guarda al elegir */
-export default function MoveSelect({ m, categories, lines, className = "" }: { m: MoveRef; categories: Category[]; lines: BudgetLine[]; className?: string }) {
+/** Cambiar qué es un movimiento del banco ya guardado: gasto, recibo, ingreso, recibo anual, del inquilino, inversión o no contar. Se guarda al elegir */
+export default function MoveSelect({ m, categories, lines, annuals = [], className = "" }: {
+  m: MoveRef; categories: Category[]; lines: BudgetLine[]; annuals?: { id: string; name: string }[]; className?: string;
+}) {
   const fijos = lines.filter((l) => l.section === "fijo" && !l.is_annual_fund);
   const ingresos = lines.filter((l) => l.section === "ingreso");
   const value = moveValue(m);
@@ -23,9 +27,15 @@ export default function MoveSelect({ m, categories, lines, className = "" }: { m
     <div className={className}>
       <select name="to" aria-label="Qué es" className="input min-h-[2.75rem] py-1.5 text-sm" defaultValue={value} disabled={busy}
         onChange={(e) => {
+          let to = e.currentTarget.value;
+          if (to === "anualnew") {
+            const name = window.prompt("Nombre del recibo anual (p. ej. Seguro del coche)");
+            if (!name?.trim()) { e.currentTarget.value = value; return; }
+            to = `anualnew:${name.trim()}`;
+          }
           const fd = new FormData();
           fd.set("id", m.id);
-          fd.set("to", e.currentTarget.value);
+          fd.set("to", to);
           setSaved(false);
           start(async () => { await reclassifyMovement(fd); setSaved(true); });
         }}>
@@ -37,6 +47,14 @@ export default function MoveSelect({ m, categories, lines, className = "" }: { m
         {fijos.length > 0 && <optgroup label="Recibo o gasto fijo">
           {fijos.map((l) => <option key={l.id} value={`line:${l.id}`}>{l.name}</option>)}
         </optgroup>}
+        <optgroup label="Recibo anual (sale de la hucha)">
+          {annuals.map((a) => <option key={a.id} value={`anual:${a.id}`}>{a.name}</option>)}
+          {m.annual_id && !annuals.some((a) => a.id === m.annual_id) && <option value={`anual:${m.annual_id}`}>Recibo anual</option>}
+          <option value="anualnew">Nuevo recibo anual…</option>
+        </optgroup>
+        <optgroup label="Inquilino">
+          <option value="inquilino">Del inquilino (me lo debe o me lo paga)</option>
+        </optgroup>
         <optgroup label="Ingreso">
           {ingresos.map((l) => <option key={l.id} value={`line:${l.id}`}>{l.name}</option>)}
           <option value="puntual">Ingreso puntual</option>

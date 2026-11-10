@@ -1,7 +1,7 @@
 import Hero from "@/components/Hero";
 import { deleteAnnual, saveAnnual, saveSettings } from "@/app/actions";
 import { MONTHS, MONTHS_SHORT, annualFund, annualMonthlyQuota, fmt, fmt0 } from "@/lib/finance";
-import { loadYear } from "@/lib/data";
+import { getUser, loadYear } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +19,40 @@ export default async function AnualesPage() {
   const quota = annualMonthlyQuota(d);
   const fund = annualFund(d);
   const total = d.annuals.reduce((s, a) => s + Number(a.amount), 0);
+  // Recibos ya pagados este año: los movimientos del banco marcados como ese recibo anual
+  const { supabase } = await getUser();
+  const { data: paid } = await supabase.from("bank_movements").select("annual_id, date, amount, bank")
+    .not("annual_id", "is", null).gte("date", `${d.year}-01-01`).lt("date", `${d.year + 1}-01-01`).order("date");
+  const paidOf = (id: string) => (paid ?? []).filter((p) => p.annual_id === id);
+  const nPaid = d.annuals.filter((a) => paidOf(a.id).length).length;
+  const pending = d.annuals.filter((a) => !paidOf(a.id).length).reduce((s, a) => s + Number(a.amount), 0);
 
   return (
     <div className="space-y-4">
-      <Hero kicker="Gastos anuales" value={fmt0(total)} sub="Apunta cada recibo anual y el mes en que llega. Se reparte entre 12 y esa cuota alimenta «Seguros / anuales» del presupuesto." />
+      <Hero kicker={`Recibos anuales de ${d.year}`} value={`Pagados ${nPaid} de ${d.annuals.length}`} sub={`Quedan por pagar ${fmt0(pending)} · total del año ${fmt0(total)}`} />
+
+      <div className="card">
+        <h2 className="section-title mb-1">Este año</h2>
+        <ul className="divide-y divide-line/70">
+          {d.annuals.map((a) => {
+            const ps = paidOf(a.id);
+            return (
+              <li key={a.id} className="flex min-h-[3.25rem] items-center gap-3 py-2">
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${ps.length ? "bg-good text-white" : "border-2 border-dashed border-warn text-transparent"}`} aria-hidden>✓</span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{a.name}</div>
+                  <div className="truncate text-xs text-muted">
+                    {ps.length ? `Pagado el ${Number(ps[0].date.slice(8, 10))} de ${MONTHS[Number(ps[0].date.slice(5, 7)) - 1].toLowerCase()} · ${ps[0].bank}`
+                      : a.pay_month ? `Pendiente · toca en ${MONTHS[a.pay_month - 1].toLowerCase()}` : "Pendiente"}
+                  </div>
+                </div>
+                <div className="tnum shrink-0 font-semibold">{fmt0(ps.length ? Math.abs(ps.reduce((s, p) => s + Number(p.amount), 0)) : Number(a.amount))}</div>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="mt-2 text-xs text-muted">Para marcar uno como pagado, toca el cargo en Movimientos y en «Qué es» elige el recibo anual. Si no está en la lista, elige «Nuevo recibo anual…» y queda grabado para el año que viene.</p>
+      </div>
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <div className="card"><div className="label">Total anual</div><div className="mt-1 text-2xl font-semibold">{fmt0(total)}</div></div>
