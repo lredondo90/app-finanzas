@@ -63,19 +63,23 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
           ? <p className="py-8 text-center text-sm text-muted">No hay movimientos en este mes.</p>
           : <MovementList expenses={list} categories={d.categories} edit={(e) => {
               const m = byExpense.get(e.id);
-              return (
+              if (!m) return (
                 <>
                   <ExpenseForm compact expense={e} categories={d.categories} methods={d.paymentMethods} defaultDate={e.date} />
-                  {m && (
-                    <div className="mt-3 border-t border-line pt-3">
-                      <p className="mb-1 text-xs text-muted">Viene de {m.bank}. ¿No es un gasto del día a día? Cámbialo aquí:</p>
-                      <MoveSelect m={m} categories={d.categories} lines={d.lines} />
-                    </div>
-                  )}
                   <form action={deleteExpense} className="mt-3 text-right">
                     <input type="hidden" name="id" value={e.id} />
-                    <button className="text-xs text-bad">{m ? "Eliminar (no contar)" : "Eliminar"}</button>
+                    <button className="text-xs text-bad">Eliminar</button>
                   </form>
+                </>
+              );
+              return (
+                <>
+                  <label className="text-xs text-muted">Qué es (viene de {m.bank}). Se guarda al elegir</label>
+                  <MoveSelect m={m} categories={d.categories} lines={d.lines} className="mt-1" />
+                  <details className="mt-1">
+                    <summary className="cursor-pointer list-none text-xs text-accent">Cambiar fecha, importe o descripción ›</summary>
+                    <div className="mt-2"><ExpenseForm compact expense={e} categories={d.categories} methods={d.paymentMethods} defaultDate={e.date} /></div>
+                  </details>
                 </>
               );
             }} />}
@@ -83,7 +87,7 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
 
       {others.length > 0 && (
         <div className="card">
-          <h2 className="section-title">Recibos, ingresos y otros del banco</h2>
+          <h2 className="section-title">Ingresos, recibos y otros del banco</h2>
           <p className="mb-2 text-xs text-muted">No cuentan como gasto del día a día. Si alguno está mal, cambia aquí qué es: el presupuesto y el patrimonio se actualizan al momento.</p>
           <ul className="divide-y divide-line/70">
             {others.map((m) => {
@@ -102,7 +106,7 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
                     </summary>
                     <div className="mb-3 rounded-2xl bg-page p-3">
                       {m.detail && <p className="mb-2 text-xs text-muted">{m.detail}</p>}
-                      <label className="text-xs text-muted">Qué es</label>
+                      <label className="text-xs text-muted">Qué es. Se guarda al elegir</label>
                       <MoveSelect m={m} categories={d.categories} lines={d.lines} className="mt-1" />
                     </div>
                   </details>

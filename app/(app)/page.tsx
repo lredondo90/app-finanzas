@@ -1,23 +1,108 @@
 import Link from "next/link";
-import ExpenseForm from "@/components/ExpenseForm";
 import Hero from "@/components/Hero";
 import Meter from "@/components/Meter";
 import MonthPicker, { currentMonth } from "@/components/MonthPicker";
-import MovementList from "@/components/MovementList";
-import { deleteExpense } from "@/app/actions";
+import MoveSelect from "@/components/MoveSelect";
 import SyncButton from "@/components/SyncButton";
 import SyncOnOpen from "@/components/SyncOnOpen";
-import { I, Icon } from "@/components/navItems";
-import { MONTHS, firstMonth, fmt0, monthOf } from "@/lib/finance";
+import { setLineDone } from "@/app/actions";
+import { accountingMonth, accountingWindow } from "@/lib/accounting";
+import { MONTHS, firstMonth, fmt, fmt0, monthSummary, plannedValue } from "@/lib/finance";
 import { getUser, loadYear } from "@/lib/data";
 import { loadHouseMonth } from "@/lib/houseData";
-import { libreByAccount, monthPlan } from "@/lib/plan";
+import type { YearData } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const signed = (v: number) => `${v >= 0 ? "+" : "−"}${fmt0(Math.abs(v))}`;
+type Summary = ReturnType<typeof monthSummary>;
+interface LineMove { id: string; bank: string; date: string; description: string; amount: number; action: string; category_id: string | null; line_id: string | null }
 
-export default async function Hoy({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
+const shortDate = (date: string) => `${Number(date.slice(8, 10))} ${MONTHS[Number(date.slice(5, 7)) - 1].slice(0, 3).toLowerCase()}`;
+
+function Check({ done }: { done: boolean }) {
+  return done ? (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0 text-good" role="img" aria-label="Hecho">
+      <circle cx="12" cy="12" r="11" fill="currentColor" /><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" className="h-6 w-6 shrink-0 text-warn" role="img" aria-label="Pendiente">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="3 3" />
+    </svg>
+  );
+}
+
+/** Ingresos o gastos fijos del mes: una línea por concepto con ✓ o «Pendiente». Al tocarla se ve el movimiento del banco y se puede cambiar */
+function Checklist({ d, s, month, section, moves }: { d: YearData; s: Summary; month: number; section: "ingreso" | "fijo"; moves: Map<string, LineMove[]> }) {
+  const income = section === "ingreso";
+  const rows = s.lineas.filter((l) => l.line.section === section && (l.value !== 0 || l.done));
+  const st = s.estado[section];
+  const all = st.total > 0 && st.hechos === st.total;
+  const word = income ? "Cobrado" : "Pagado";
+  return (
+    <section className="card">
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="section-title">{income ? "Ingresos" : "Gastos fijos"}</h2>
+        <span className={`text-sm font-semibold ${all ? "text-good" : "text-ink2"}`}>{all ? `Todo ${word.toLowerCase()}` : `${word}s ${st.hechos} de ${st.total}`}</span>
+      </div>
+      <p className="mb-2 text-sm text-ink2">{all ? `${fmt0(rows.reduce((a, r) => a + r.value, 0))} en total` : `Falta por ${income ? "cobrar" : "pagar"} ${fmt0(st.pendiente)}`}</p>
+      {rows.length === 0 && <p className="py-4 text-center text-sm text-muted">Nada previsto este mes. <Link href="/plan" className="text-accent">Escribir mi plan ›</Link></p>}
+      <ul className="divide-y divide-line/70">
+        {rows.map(({ line, value, done }) => {
+          const fund = line.is_annual_fund;
+          const ms = moves.get(line.id) ?? [];
+          const ok = done || fund;
+          return (
+            <li key={line.id}>
+              <details className="group">
+                <summary className="flex min-h-[3.25rem] cursor-pointer list-none items-center gap-3 py-2">
+                  <Check done={ok} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{line.name}</div>
+                    <div className={`truncate text-xs ${ok ? "text-muted" : "font-semibold text-ink2"}`}>
+                      {fund ? "Se aparta cada mes para los recibos anuales"
+                        : !done ? "Pendiente"
+                        : ms.length ? `${word} el ${shortDate(ms[0].date)} · ${ms[0].bank}` : `${word} (marcado a mano)`}
+                    </div>
+                  </div>
+                  <div className="tnum shrink-0 font-semibold">{fmt0(value)}</div>
+                  <span className="shrink-0 text-xs text-muted transition group-open:rotate-90" aria-hidden>›</span>
+                </summary>
+                <div className="mb-3 space-y-3 rounded-2xl bg-page p-3">
+                  {ms.map((m) => (
+                    <div key={m.id}>
+                      <div className="flex items-baseline justify-between gap-2 text-sm">
+                        <span className="min-w-0 truncate">{shortDate(m.date)} · {m.description}</span>
+                        <span className="tnum shrink-0 font-semibold">{fmt(m.amount)}</span>
+                      </div>
+                      <label className="mt-1.5 block text-xs text-muted">¿No es {line.name}? Cambia aquí qué es</label>
+                      <MoveSelect m={m} categories={d.categories} lines={d.lines} className="mt-1" />
+                    </div>
+                  ))}
+                  {!fund && ms.length === 0 && (
+                    <>
+                      <p className="text-xs text-muted">
+                        {done ? "No hay ningún movimiento del banco enlazado." : `Se marcará solo cuando llegue el movimiento del banco. Si ya ha llegado con otro nombre, búscalo en Movimientos y dile que es ${line.name}.`}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <form action={async () => { "use server"; await setLineDone(line.id, d.year, month, !done, plannedValue(d, line, month)); }}>
+                          <button className="btn-ghost min-h-[2.75rem]">{done ? "Volver a pendiente" : `Marcar como ${word.toLowerCase()}`}</button>
+                        </form>
+                        {!done && <Link href={`/gastos?m=${month}`} className="btn-ghost min-h-[2.75rem]">Buscar en Movimientos</Link>}
+                      </div>
+                    </>
+                  )}
+                  {!fund && <Link href={`/ingresos?m=${month}`} className="block text-xs text-accent">Cambiar el importe de este mes ›</Link>}
+                </div>
+              </details>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+export default async function EsteMes({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const sp = await searchParams;
   const d = await loadYear();
   const first = firstMonth(d);
@@ -33,145 +118,64 @@ export default async function Hoy({ searchParams }: { searchParams: Promise<{ m?
   }
 
   const { supabase } = await getUser();
-  const [{ count: pendingCount = 0 }, { count: connCount = 0 }, house] = await Promise.all([
+  const cutoff = d.settings?.cutoff_day ?? 25;
+  // Movimientos del banco enlazados a un ingreso o recibo: desde el corte del mes anterior hasta fin de mes
+  const win = accountingWindow(d.year, month, true, cutoff);
+  const end = accountingWindow(d.year, month, false, cutoff).to;
+  const [{ count: pendingCount = 0 }, { count: connCount = 0 }, house, { data: linked }] = await Promise.all([
     supabase.from("bank_pending").select("*", { count: "exact", head: true }),
     supabase.from("bank_connections").select("*", { count: "exact", head: true }),
     loadHouseMonth(supabase, d.year, month),
+    supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, line_id")
+      .not("line_id", "is", null).gte("date", win.from).lt("date", end).order("date", { ascending: false }),
   ]);
+  const moves = new Map<string, LineMove[]>();
+  for (const m of linked ?? []) {
+    const line = d.lines.find((l) => l.id === m.line_id);
+    if (!line) continue;
+    const am = accountingMonth(m.date, !!line.next_month, cutoff);
+    if (am.year !== d.year || am.month !== month) continue;
+    moves.set(line.id, [...(moves.get(line.id) ?? []), { ...m, amount: Number(m.amount) }]);
+  }
 
-  const mp = monthPlan(d, month);
-  const { s, libre } = mp;
-  const actual = s.periodo === "actual";
-  const usado = libre.presupuesto > 0 ? libre.gastado / libre.presupuesto : 0;
-  const markLibre = actual && s.ritmo ? s.ritmo.dia / s.ritmo.dias : null;
-  const overPace = libre.hoyTocaria != null && libre.gastado > libre.hoyTocaria;
-  const porCuenta = libreByAccount(d, month);
-  const recientes = d.expenses.filter((e) => monthOf(e.date) === month).slice(0, 5);
-  const today = new Date();
-  const defaultDate = today.getFullYear() === d.year && today.getMonth() + 1 === month
-    ? today.toISOString().slice(0, 10)
-    : `${d.year}-${String(month).padStart(2, "0")}-01`;
-
-  // Aviso sobre el total del gasto libre
-  const aviso = libre.presupuesto <= 0 ? null
-    : usado >= 1 ? { tone: "bad" as const, text: `Te has pasado ${fmt0(libre.gastado - libre.presupuesto)} de tus ${fmt0(libre.presupuesto)} de gasto libre.` }
-    : usado >= 0.8 ? { tone: "warn" as const, text: `Ya has gastado el ${Math.round(usado * 100)} % de tus ${fmt0(libre.presupuesto)} de gasto libre.` }
-    : actual && libre.previsto > libre.presupuesto ? { tone: "warn" as const, text: `A este ritmo acabarás el mes en ${fmt0(libre.previsto)}, ${fmt0(libre.previsto - libre.presupuesto)} por encima de tus ${fmt0(libre.presupuesto)}.` }
-    : null;
+  const s = monthSummary(d, month);
+  const gastado = s.variableReal;
+  const tope = s.prevision;
+  const queda = tope - gastado;
 
   return (
     <div className="space-y-4">
       <Hero
         top={<MonthPicker month={month} year={d.year} min={first} />}
-        right={
-          <div className="flex items-center gap-2 text-white/70">
-            {(connCount ?? 0) > 0 && <><SyncOnOpen /><SyncButton compact /></>}
-            <Link href="/mas" aria-label="Más opciones y ajustes" className="hero-chip px-2.5"><Icon d={I.gear} className="h-4 w-4" /></Link>
-          </div>
-        }
-        kicker={libre.queda >= 0 ? "Gasto libre · te quedan" : "Gasto libre · te has pasado"}
-        value={fmt0(Math.abs(libre.queda))}
-        sub={<>de tus {fmt0(libre.presupuesto)} libres · llevas {fmt0(libre.gastado)}</>}>
-        <Meter value={usado} mark={markLibre} light />
-        {actual && libre.hoyTocaria != null && (
-          <p className="mt-3 text-sm text-white/80">
-            {overPace
-              ? <>Vas <b className="text-white">{fmt0(libre.gastado - libre.hoyTocaria)} por encima</b> de lo que tocaría a día de hoy (marca amarilla).</>
-              : <>Vas <b className="text-white">{fmt0(libre.hoyTocaria - libre.gastado)} por debajo</b> de lo que tocaría a día de hoy (marca amarilla).</>}
-            {libre.queda > 0 && libre.porDia != null && <> Puedes gastar unos <b className="text-white">{fmt0(libre.porDia)} al día</b>.</>}
-          </p>
-        )}
+        right={(connCount ?? 0) > 0 ? <div className="flex items-center gap-2 text-white/70"><SyncOnOpen /><SyncButton compact /></div> : undefined}
+        kicker="Gastado este mes"
+        value={fmt0(gastado)}
+        sub={tope > 0 ? <>de tus {fmt0(tope)} · {queda >= 0 ? `te quedan ${fmt0(queda)}` : `te has pasado ${fmt0(-queda)}`}</> : undefined}>
+        {tope > 0 && <Meter value={gastado / tope} light />}
+        {house.budgets.map(({ account, budget, spent }) => (
+          <Link key={account.uid} href={`/casa?m=${month}`} className="mt-4 block">
+            <div className="mb-1.5 flex items-baseline justify-between text-sm text-white/80">
+              <span className="truncate">Casa · {account.label}</span>
+              <span className="tnum shrink-0"><b className="text-white">{fmt0(spent)}</b> de {fmt0(budget)}</span>
+            </div>
+            <Meter value={spent / budget} light />
+          </Link>
+        ))}
+        <Link href={`/hoy?m=${month}`} className="mt-4 inline-block text-sm font-semibold text-white">Ver el detalle del gasto ›</Link>
       </Hero>
 
-      {aviso && (
-        <div className={`flex items-start gap-2 rounded-2xl px-4 py-3 text-sm ${aviso.tone === "bad" ? "bg-bad/10 text-bad" : "bg-warn/15 text-ink"}`}>
-          <span aria-hidden className="font-bold">!</span><span>{aviso.text}</span>
-        </div>
-      )}
-
       {(pendingCount ?? 0) > 0 && (
-        <Link href="/importar" className="flex items-center gap-2 px-1 text-sm text-ink2">
-          <span className="rounded-full bg-accent px-1.5 py-0.5 text-[11px] font-bold text-white">{pendingCount}</span>
-          movimientos por revisar <span className="text-accent">Revisar ›</span>
+        <Link href="/importar" className="flex min-h-[2.75rem] items-center gap-2 rounded-2xl bg-accent/10 px-4 py-2.5 text-sm">
+          <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-white">{pendingCount}</span>
+          <span className="flex-1">{pendingCount === 1 ? "movimiento que no sé qué es" : "movimientos que no sé qué son"}</span>
+          <span className="font-semibold text-accent">Decírmelo ›</span>
         </Link>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2">
-        {/* Gasto libre */}
-        <Link href={`/presupuesto?m=${month}`} className="card block space-y-2.5">
-          <div className="flex items-center justify-between"><span className="font-semibold">Gasto libre</span><span className="text-muted">›</span></div>
-          <div className="flex items-baseline gap-2">
-            <span className="tnum text-2xl font-semibold">{fmt0(libre.gastado)}</span>
-            <span className="text-xs text-muted">de {fmt0(libre.presupuesto)} · {libre.queda >= 0 ? `quedan ${fmt0(libre.queda)}` : `${fmt0(-libre.queda)} de más`}</span>
-          </div>
-          <Meter value={usado} mark={markLibre} tone={usado > 1 || overPace ? "bad" : "accent"} />
-          {porCuenta.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 text-xs text-ink2">
-              {porCuenta.slice(0, 3).map((c) => (
-                <span key={c.name} className="rounded-full bg-line/50 px-2.5 py-1">
-                  {c.name} {fmt0(c.total)}{libre.gastado > 0 ? ` (${Math.round((c.total / libre.gastado) * 100)} %)` : ""}
-                </span>
-              ))}
-            </div>
-          )}
-          {libre.hoyTocaria != null && (
-            <p className="text-xs text-muted">{overPace ? "Por encima" : "Por debajo"} del ritmo (deberías ir por {fmt0(libre.hoyTocaria)}).</p>
-          )}
-        </Link>
-
-        {/* Casa */}
-        {house.budgets.map(({ account, budget, spent }) => {
-          const mark = markLibre;
-          const tocaria = mark != null ? budget * mark : null;
-          const bad = spent > budget || (tocaria != null && spent > tocaria);
-          return (
-            <Link key={account.uid} href={`/casa?m=${month}`} className="card block space-y-2.5">
-              <div className="flex items-center justify-between"><span className="truncate font-semibold">Casa · {account.label}</span><span className="text-muted">›</span></div>
-              <div className="flex items-baseline gap-2">
-                <span className="tnum text-2xl font-semibold">{fmt0(spent)}</span>
-                <span className="text-xs text-muted">de {fmt0(budget)} entre los dos · {spent <= budget ? `quedan ${fmt0(budget - spent)}` : `${fmt0(spent - budget)} de más`}</span>
-              </div>
-              <Meter value={spent / budget} mark={mark} tone={bad ? "warn" : "accent"} />
-              {tocaria != null && <p className="text-xs text-muted">{spent > tocaria ? "Algo por encima" : "Por debajo"} del ritmo (debería ir por {fmt0(tocaria)}).</p>}
-            </Link>
-          );
-        })}
-      </section>
-
-      {/* Así acabarás el mes */}
-      <section className="card space-y-2.5">
-        <h2 className="section-title">{s.periodo === "pasado" ? `Así acabó ${MONTHS[month - 1].toLowerCase()}` : "Así acabarás el mes"}</h2>
-        <p className="text-sm text-ink2">
-          {s.periodo === "pasado" ? "Gastaste " : s.periodo === "actual" ? "A este ritmo gastarás unos " : "Según tu plan gastarás "}
-          <b className="tnum text-ink">{fmt0(libre.previsto)}</b> de tus {fmt0(libre.presupuesto)} libres, y {s.periodo === "pasado" ? "ahorraste" : "ahorrarás"} <b className="tnum text-ink">{fmt0(mp.ahorroPrevisto)}</b>.
-        </p>
-        <div className="flex justify-between text-sm"><span className="text-ink2">Ahorro según tu plan</span><span className="tnum">{fmt0(mp.plan.ahorro)}</span></div>
-        <div className="flex justify-between text-sm"><span className="text-ink2">Diferencia</span><span className={`tnum font-semibold ${mp.desviacion >= 0 ? "text-good" : "text-bad"}`}>{signed(mp.desviacion)}</span></div>
-        <Link href="/ano" className="block pt-1 text-sm font-semibold text-accent">Ver mi año frente al plan ›</Link>
-      </section>
-
-      <section className="card">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="section-title">Últimos movimientos</h2>
-          <Link href={`/gastos?m=${month}`} className="text-sm text-accent">Ver todos ›</Link>
-        </div>
-        {recientes.length
-          ? <MovementList expenses={recientes} categories={d.categories} edit={(e) => (
-              <>
-                <ExpenseForm compact expense={e} categories={d.categories} methods={d.paymentMethods} defaultDate={e.date} />
-                <div className="mt-3 flex items-center justify-between">
-                  <Link href={`/gastos?m=${month}`} className="text-xs text-accent">Más opciones en Movimientos ›</Link>
-                  <form action={deleteExpense}><input type="hidden" name="id" value={e.id} /><button className="text-xs text-bad">Eliminar</button></form>
-                </div>
-              </>
-            )} />
-          : <p className="py-6 text-center text-sm text-muted">Sin gastos en {MONTHS[month - 1].toLowerCase()} todavía.</p>}
-      </section>
-
-      <details className="card">
-        <summary className="cursor-pointer list-none font-semibold">+ Apuntar un gasto a mano</summary>
-        <div className="mt-3"><ExpenseForm compact categories={d.categories} methods={d.paymentMethods} defaultDate={defaultDate} /></div>
-      </details>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} />
+        <Checklist d={d} s={s} month={month} section="fijo" moves={moves} />
+      </div>
     </div>
   );
 }

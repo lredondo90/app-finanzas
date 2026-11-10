@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Icon, NAV_ALL, TABS } from "./navItems";
+import { Icon, MORE, NAV_ALL, TABS } from "./navItems";
 
 
 export default function Nav() {
@@ -28,10 +28,10 @@ export default function Nav() {
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line/70 bg-surface/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
         <div className="flex">
           {TABS.map((it) => {
-            const on = active(it.href);
+            const on = it.href === "/mas" ? active("/mas") || MORE.some((x) => active(x.href)) : active(it.href);
             return (
               <Link key={it.href} href={it.href}
-                className={`flex flex-1 flex-col items-center gap-1 pb-1.5 pt-2 text-[10px] ${on ? "font-semibold text-accent" : "text-muted"}`}>
+                className={`flex min-w-0 flex-1 flex-col items-center gap-1 pb-1.5 pt-2 text-[11px] ${on ? "font-semibold text-accent" : "text-muted"}`}>
                 <span className={`rounded-full px-4 py-0.5 ${on ? "bg-accent/10" : ""}`}><Icon d={it.icon} /></span>
                 {it.label}
               </Link>

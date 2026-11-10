@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import { reclassifyMovement } from "@/app/importActions";
 import type { BudgetLine, Category } from "@/lib/types";
 
@@ -11,16 +12,23 @@ export const moveValue = (m: MoveRef) =>
   : (m.action === "fijo" || m.action === "ingreso") && m.line_id ? `line:${m.line_id}`
   : m.action;
 
-/** Cambiar qué es un movimiento del banco ya guardado: gasto de una categoría, recibo, ingreso, inversión o no contar */
+/** Cambiar qué es un movimiento del banco ya guardado: gasto de una categoría, recibo, ingreso, inversión o no contar. Se guarda al elegir */
 export default function MoveSelect({ m, categories, lines, className = "" }: { m: MoveRef; categories: Category[]; lines: BudgetLine[]; className?: string }) {
   const fijos = lines.filter((l) => l.section === "fijo" && !l.is_annual_fund);
   const ingresos = lines.filter((l) => l.section === "ingreso");
   const value = moveValue(m);
+  const [busy, start] = useTransition();
+  const [saved, setSaved] = useState(false);
   return (
-    <form action={reclassifyMovement} className={className}>
-      <input type="hidden" name="id" value={m.id} />
-      <select name="to" aria-label="Qué es" className="input py-1.5 text-sm" defaultValue={value}
-        onChange={(e) => e.currentTarget.form?.requestSubmit()}>
+    <div className={className}>
+      <select name="to" aria-label="Qué es" className="input min-h-[2.75rem] py-1.5 text-sm" defaultValue={value} disabled={busy}
+        onChange={(e) => {
+          const fd = new FormData();
+          fd.set("id", m.id);
+          fd.set("to", e.currentTarget.value);
+          setSaved(false);
+          start(async () => { await reclassifyMovement(fd); setSaved(true); });
+        }}>
         {value === "cat:" && <option value="cat:">Gasto sin categoría</option>}
         {(value === "fijo" || value === "ingreso") && <option value={value}>{value === "fijo" ? "Recibo sin concepto" : "Ingreso sin concepto"}</option>}
         <optgroup label="Gasto del día a día">
@@ -38,6 +46,9 @@ export default function MoveSelect({ m, categories, lines, className = "" }: { m
           <option value="ignorar">No contar (traspaso…)</option>
         </optgroup>
       </select>
-    </form>
+      <p className="mt-1 h-4 text-xs" aria-live="polite">
+        {busy ? <span className="text-muted">Guardando…</span> : saved ? <span className="font-semibold text-good">✓ Guardado</span> : null}
+      </p>
+    </div>
   );
 }
