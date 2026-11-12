@@ -128,6 +128,55 @@ export default async function PresupuestoPage({ searchParams }: { searchParams: 
         <p className="text-xs text-muted">Un solo bote para todo lo que no es fijo, de todas tus cuentas. <Link href={`/gastos?m=${month}`} className="text-accent">Ver movimientos ›</Link></p>
       </section>
 
+      {/* Resumen: ingresos totales, gastos totales y lo que queda, frente al plan */}
+      {(() => {
+        const pasado = s.periodo === "pasado";
+        const gastosPlan = mp.plan.fijos + mp.plan.libre;
+        const gastosPrev = s.fijos + libre.previsto;
+        const rows = [
+          { name: "Ingresos totales", plan: mp.plan.ingresos, prev: s.ingresos, dev: s.ingresos - mp.plan.ingresos },
+          { name: "Gastos fijos", plan: mp.plan.fijos, prev: s.fijos, dev: mp.plan.fijos - s.fijos, sub: true },
+          { name: "Gasto libre", plan: mp.plan.libre, prev: libre.previsto, dev: mp.plan.libre - libre.previsto, sub: true },
+          { name: "Gastos totales", plan: gastosPlan, prev: gastosPrev, dev: gastosPlan - gastosPrev },
+        ];
+        return (
+          <section className="card">
+            <h2 className="section-title mb-1">{pasado ? "Así acabó el mes" : "Así vas a acabar el mes"}</h2>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] text-muted">
+                  <th className="pb-1 text-left font-normal"></th>
+                  <th className="w-16 pb-1 text-right font-normal">Plan</th>
+                  <th className="w-20 pb-1 text-right font-normal">{pasado ? "Real" : "Previsto"}</th>
+                  <th className="w-16 pb-1 text-right font-normal">Desv.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.name} className="border-t border-line/60">
+                    <td className={`py-2 pr-2 ${r.sub ? "pl-3 text-ink2" : "font-medium"}`}>{r.name}</td>
+                    <td className="tnum py-2 text-right">{num(r.plan)}</td>
+                    <td className="tnum py-2 text-right">{num(r.prev)}</td>
+                    <td className={`tnum py-2 text-right ${r.dev < -0.5 ? "text-bad" : r.dev > 0.5 ? "text-good" : "text-muted"}`}>{signed(r.dev)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-line font-semibold">
+                  <td className="py-2">{pasado ? "Ahorro del mes" : "Ahorro a fin de mes"}</td>
+                  <td className="tnum py-2 text-right">{num(mp.plan.ahorro)}</td>
+                  <td className="tnum py-2 text-right">{num(mp.ahorroPrevisto)}</td>
+                  <td className={`tnum py-2 text-right ${mp.desviacion < -0.5 ? "text-bad" : mp.desviacion > 0.5 ? "text-good" : "text-muted"}`}>{signed(mp.desviacion)}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p className="mt-2 text-xs text-muted">
+              {pasado ? "Con lo que realmente cobraste y gastaste." : s.periodo === "actual"
+                ? "Lo cobrado y pagado con su importe real; lo pendiente, con el del plan; el gasto libre, al ritmo que llevas. Cuando acabe el mes saldrá lo real."
+                : "Mes futuro: todo según tu plan."}
+            </p>
+          </section>
+        );
+      })()}
+
       {house.budgets.map(({ account, budget, spent }) => {
         const prev = s.periodo === "actual" && s.ritmo ? (s.ritmo.dia < 7 ? spent + (budget * (s.ritmo.dias - s.ritmo.dia)) / s.ritmo.dias : (spent / s.ritmo.dia) * s.ritmo.dias) : s.periodo === "pasado" ? spent : budget;
         return (
