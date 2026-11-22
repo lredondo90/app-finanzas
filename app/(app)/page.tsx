@@ -138,12 +138,16 @@ function Checklist({ d, s, month, section, moves, open, oneOffMoves }: { d: Year
   );
 }
 
+/** Nombre legible de una compra de fondos: «Savings plan execution LU… Amundi S&P 500…, quantity: …» → «Amundi S&P 500…» */
+const fundName = (desc: string) =>
+  desc.replace(/^savings plan execution\s+[A-Z]{2}[A-Z0-9]{9}\d\s*/i, "").replace(/,\s*quantity:.*$/i, "").trim() || desc;
+
 /** Resultado del mes en ahorro: ingresos − gastos fijos − gasto libre (la misma cuenta que en Presupuesto) */
-function Ahorro({ d, mp, month }: { d: YearData; mp: MonthPlan; month: number }) {
+function Ahorro({ d, mp, month, fundMoves }: { d: YearData; mp: MonthPlan; month: number; fundMoves: LineMove[] }) {
   const { s, plan, libre, ahorroPrevisto, desviacion } = mp;
   // Fondos: lo metido en fondos este mes (movimientos del banco marcados como inversión); en meses futuros, tus planes de ahorro
   const fondos = s.periodo === "futuro" ? s.planes
-    : -d.fundMovements.filter((m) => m.date.startsWith(`${d.year}-`) && Number(m.date.slice(5, 7)) === month).reduce((a, m) => a + m.amount, 0);
+    : -fundMoves.reduce((a, m) => a + m.amount, 0);
   const efectivo = ahorroPrevisto - fondos;
   const pasado = s.periodo === "pasado";
   const actual = s.periodo === "actual";
@@ -179,6 +183,26 @@ function Ahorro({ d, mp, month }: { d: YearData; mp: MonthPlan; month: number })
           <div className="text-[11px] text-muted">{s.periodo === "futuro" ? "Según tus planes de ahorro" : actual ? "Metido en fondos hasta hoy" : "Metido en fondos"}</div>
         </div>
       </div>
+      {fundMoves.length > 0 && (
+        <details className="group mt-2">
+          <summary className="flex min-h-[2.75rem] cursor-pointer list-none items-center justify-between gap-2 rounded-2xl border border-line px-3 text-sm font-semibold text-accent">
+            <span>Ver a qué fondos ha ido ({fundMoves.length} {fundMoves.length === 1 ? "movimiento" : "movimientos"})</span>
+            <span className="text-xs transition group-open:rotate-90" aria-hidden>›</span>
+          </summary>
+          <div className="mt-2 space-y-2 rounded-2xl bg-page p-3">
+            <p className="text-xs text-muted">Si alguno no es una compra de fondos, cámbialo aquí: se guarda al elegir.</p>
+            {fundMoves.map((m) => (
+              <div key={m.id} className="border-t border-line/60 pt-2 first:border-0">
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <span className="min-w-0">{shortDate(m.date)} · {m.bank}<span className="block truncate text-xs text-muted">{fundName(m.description)}</span></span>
+                  <span className="tnum shrink-0 font-semibold">{fmt(-m.amount)}</span>
+                </div>
+                <MoveSelect m={m} categories={d.categories} lines={d.lines} annuals={d.annuals} className="mt-1" />
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       <ul className="mt-3 space-y-1 text-sm">
         {rows.map((r) => (
           <li key={r.name} className="flex justify-between gap-2"><span className="text-ink2">{r.name}</span><span className="tnum">{r.v < 0 ? "−" : "+"}{fmt0(Math.abs(r.v))}</span></li>
@@ -240,6 +264,12 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
     ? await supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, line_id, one_off_income_id").in("one_off_income_id", oneOffIds)
     : { data: [] as (LineMove & { one_off_income_id: string })[] };
   const oneOffMoves = new Map<string, LineMove>((oneOffRows ?? []).map((m) => [m.one_off_income_id as string, { ...m, amount: Number(m.amount) }]));
+  // Lo metido en fondos este mes: movimientos del banco marcados como inversión
+  const mm = String(month).padStart(2, "0");
+  const nextM = month === 12 ? `${d.year + 1}-01-01` : `${d.year}-${String(month + 1).padStart(2, "0")}-01`;
+  const { data: fundRows } = await supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, line_id")
+    .eq("action", "inversion").gte("date", `${d.year}-${mm}-01`).lt("date", nextM).order("date");
+  const fundMoves: LineMove[] = (fundRows ?? []).map((m) => ({ ...m, amount: Number(m.amount) }));
   const mp = monthPlan(d, month);
   const s = mp.s;
   const debe = (tenant ?? []).reduce((a, t) => a + Number(t.amount), 0);
@@ -277,7 +307,7 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
         </Link>
       )}
 
-      <Ahorro d={d} mp={mp} month={month} />
+      <Ahorro d={d} mp={mp} month={month} fundMoves={fundMoves} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} open={sp.l} oneOffMoves={oneOffMoves} />
