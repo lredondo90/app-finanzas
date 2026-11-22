@@ -34,7 +34,7 @@ function Check({ done }: { done: boolean }) {
 }
 
 /** Ingresos o gastos fijos del mes: una línea por concepto con ✓ o «Pendiente». Al tocarla se ve el movimiento del banco y se puede cambiar */
-function Checklist({ d, s, month, section, moves, open }: { d: YearData; s: Summary; month: number; section: "ingreso" | "fijo"; moves: Map<string, LineMove[]>; open?: string }) {
+function Checklist({ d, s, month, section, moves, open, oneOffMoves }: { d: YearData; s: Summary; month: number; section: "ingreso" | "fijo"; moves: Map<string, LineMove[]>; open?: string; oneOffMoves?: Map<string, LineMove> }) {
   const income = section === "ingreso";
   const rows = s.lineas.filter((l) => l.line.section === section && (l.value !== 0 || l.done));
   const st = s.estado[section];
@@ -115,14 +115,20 @@ function Checklist({ d, s, month, section, moves, open }: { d: YearData; s: Summ
                 <span className="shrink-0 text-xs text-muted transition group-open:rotate-90" aria-hidden>›</span>
               </summary>
               <div className="mb-3 space-y-2 rounded-2xl bg-page p-3">
-                {puntuales.map((i) => (
-                  <div key={i.id} className="flex items-baseline justify-between gap-2 text-sm">
-                    <span className="min-w-0 truncate">{shortDate(i.date)} · {i.concept}{i.notes?.startsWith("Importado de ") ? ` · ${i.notes.slice(13)}` : ""}</span>
-                    <span className="tnum shrink-0 font-semibold">{fmt(Number(i.amount))}</span>
-                  </div>
-                ))}
-                <p className="text-xs text-muted">Si alguno es un traspaso entre tus cuentas y no un ingreso, búscalo en Movimientos y márcalo como «No contar».</p>
-                <Link href={`/gastos?m=${month}`} className="btn-ghost inline-flex min-h-[2.75rem] items-center">Ir a Movimientos</Link>
+                <p className="text-xs text-muted">Si alguno es un traspaso entre tus cuentas o no es un ingreso de verdad, cámbialo aquí: se guarda al elegir.</p>
+                {puntuales.map((i) => {
+                  const m = oneOffMoves?.get(i.id);
+                  return (
+                    <div key={i.id} className="border-t border-line/60 pt-2 first:border-0">
+                      <div className="flex items-baseline justify-between gap-2 text-sm">
+                        <span className="min-w-0 truncate">{shortDate(i.date)} · {i.concept}{i.notes?.startsWith("Importado de ") ? ` · ${i.notes.slice(13)}` : ""}</span>
+                        <span className="tnum shrink-0 font-semibold">{fmt(Number(i.amount))}</span>
+                      </div>
+                      {m ? <MoveSelect m={m} categories={d.categories} lines={d.lines} annuals={d.annuals} className="mt-1" />
+                        : <p className="mt-1 text-xs text-muted">Apuntado a mano. <Link href={`/ingresos?m=${month}`} className="text-accent">Cambiarlo ›</Link></p>}
+                    </div>
+                  );
+                })}
               </div>
             </details>
           </li>
@@ -228,6 +234,12 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
     moves.set(line.id, [...(moves.get(line.id) ?? []), { ...m, amount: Number(m.amount) }]);
   }
 
+  // Movimientos del banco de los ingresos puntuales del mes, para poder cambiarlos desde aquí
+  const oneOffIds = d.oneOffIncomes.filter((i) => i.date.startsWith(`${d.year}-`) && Number(i.date.slice(5, 7)) === month).map((i) => i.id);
+  const { data: oneOffRows } = oneOffIds.length
+    ? await supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, line_id, one_off_income_id").in("one_off_income_id", oneOffIds)
+    : { data: [] as (LineMove & { one_off_income_id: string })[] };
+  const oneOffMoves = new Map<string, LineMove>((oneOffRows ?? []).map((m) => [m.one_off_income_id as string, { ...m, amount: Number(m.amount) }]));
   const mp = monthPlan(d, month);
   const s = mp.s;
   const debe = (tenant ?? []).reduce((a, t) => a + Number(t.amount), 0);
@@ -268,7 +280,7 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
       <Ahorro d={d} mp={mp} month={month} />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} open={sp.l} />
+        <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} open={sp.l} oneOffMoves={oneOffMoves} />
         <Checklist d={d} s={s} month={month} section="fijo" moves={moves} open={sp.l} />
       </div>
 
