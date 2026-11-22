@@ -8,8 +8,9 @@ import SyncOnOpen from "@/components/SyncOnOpen";
 import { setLineDone } from "@/app/actions";
 import { periodOf, periodWindow } from "@/lib/accounting";
 import { loadPeriods } from "@/lib/periods";
-import { MONTHS, firstMonth, fmt, fmt0, monthSummary, plannedValue } from "@/lib/finance";
+import { MONTHS, firstMonth, fmt, fmt0, plannedValue, type monthSummary } from "@/lib/finance";
 import { getUser, loadYear } from "@/lib/data";
+import { monthPlan, type MonthPlan } from "@/lib/plan";
 import { loadHouseMonth } from "@/lib/houseData";
 import type { YearData } from "@/lib/types";
 
@@ -103,6 +104,67 @@ function Checklist({ d, s, month, section, moves, open }: { d: YearData; s: Summ
   );
 }
 
+/** Resultado del mes en ahorro: ingresos − gastos fijos − gasto libre (la misma cuenta que en Presupuesto) */
+function Ahorro({ d, mp, month }: { d: YearData; mp: MonthPlan; month: number }) {
+  const { s, plan, libre, ahorroPrevisto, desviacion } = mp;
+  // Fondos: lo metido en fondos este mes (movimientos del banco marcados como inversión); en meses futuros, tus planes de ahorro
+  const fondos = s.periodo === "futuro" ? s.planes
+    : -d.fundMovements.filter((m) => m.date.startsWith(`${d.year}-`) && Number(m.date.slice(5, 7)) === month).reduce((a, m) => a + m.amount, 0);
+  const efectivo = ahorroPrevisto - fondos;
+  const pasado = s.periodo === "pasado";
+  const actual = s.periodo === "actual";
+  const cobrado = s.lineas.filter((l) => l.line.section === "ingreso" && l.done).reduce((a, l) => a + l.value, 0) + s.ingresosPuntuales;
+  const pagado = s.lineas.filter((l) => l.line.section === "fijo" && (l.done || l.line.is_annual_fund)).reduce((a, l) => a + l.value, 0);
+  const hastaHoy = cobrado - pagado - s.variableReal;
+  const signo = (v: number) => (v < -0.5 ? "−" : "");
+  const rows = [
+    { name: "Ingresos", v: s.ingresos },
+    { name: "Gastos fijos", v: -s.fijos },
+    { name: pasado ? "Gasto libre" : "Gasto libre (al ritmo que llevas)", v: -libre.previsto },
+  ];
+  return (
+    <section className="card">
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="section-title">{pasado ? "Ahorraste este mes" : actual ? "Vas a ahorrar este mes" : "Ahorro previsto"}</h2>
+        <Link href={`/presupuesto?m=${month}`} className="shrink-0 text-xs text-accent">Detalle ›</Link>
+      </div>
+      <div className={`tnum mt-1 text-3xl font-semibold ${ahorroPrevisto < -0.5 ? "text-bad" : "text-good"}`}>{signo(ahorroPrevisto)}{fmt0(Math.abs(ahorroPrevisto))}</div>
+      <p className="mt-1 text-sm text-ink2">
+        Tu plan: {signo(plan.ahorro)}{fmt0(Math.abs(plan.ahorro))}
+        {Math.abs(desviacion) >= 0.5 && <> · <span className={desviacion < 0 ? "font-semibold text-bad" : "font-semibold text-good"}>{desviacion < 0 ? `${fmt0(-desviacion)} menos` : `${fmt0(desviacion)} más`}</span></>}
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-2xl bg-page px-3 py-2">
+          <div className="text-xs text-muted">En efectivo</div>
+          <div className={`tnum text-lg font-semibold ${efectivo < -0.5 ? "text-bad" : ""}`}>{signo(efectivo)}{fmt0(Math.abs(efectivo))}</div>
+          <div className="text-[11px] text-muted">Se queda en tus cuentas</div>
+        </div>
+        <div className="rounded-2xl bg-page px-3 py-2">
+          <div className="text-xs text-muted">En fondos</div>
+          <div className={`tnum text-lg font-semibold ${fondos < -0.5 ? "text-bad" : ""}`}>{signo(fondos)}{fmt0(Math.abs(fondos))}</div>
+          <div className="text-[11px] text-muted">{s.periodo === "futuro" ? "Según tus planes de ahorro" : actual ? "Metido en fondos hasta hoy" : "Metido en fondos"}</div>
+        </div>
+      </div>
+      <ul className="mt-3 space-y-1 text-sm">
+        {rows.map((r) => (
+          <li key={r.name} className="flex justify-between gap-2"><span className="text-ink2">{r.name}</span><span className="tnum">{r.v < 0 ? "−" : "+"}{fmt0(Math.abs(r.v))}</span></li>
+        ))}
+      </ul>
+      {actual && (
+        <p className="mt-3 rounded-2xl bg-page px-3 py-2 text-sm">
+          Hasta hoy: cobrado {fmt0(cobrado)} − pagado {fmt0(pagado)} − gastado {fmt0(s.variableReal)} = <b className={hastaHoy < -0.5 ? "text-bad" : ""}>{signo(hastaHoy)}{fmt0(Math.abs(hastaHoy))}</b>
+        </p>
+      )}
+      <p className="mt-2 text-xs text-muted">
+        Ahorro = ingresos − gastos fijos − gasto libre. De ahí, lo que metes en fondos va a «En fondos» y el resto es efectivo.{" "}
+        {pasado ? "Con lo que realmente cobraste y gastaste."
+          : actual ? "Lo cobrado y pagado va con su importe real; lo pendiente, con el de tu plan."
+          : "Mes futuro: todo según tu plan."}
+      </p>
+    </section>
+  );
+}
+
 export default async function EsteMes({ searchParams }: { searchParams: Promise<{ m?: string; l?: string }> }) {
   const sp = await searchParams;
   const d = await loadYear();
@@ -138,7 +200,8 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
     moves.set(line.id, [...(moves.get(line.id) ?? []), { ...m, amount: Number(m.amount) }]);
   }
 
-  const s = monthSummary(d, month);
+  const mp = monthPlan(d, month);
+  const s = mp.s;
   const debe = (tenant ?? []).reduce((a, t) => a + Number(t.amount), 0);
   const anualesPagados = new Set((paidAnnuals ?? []).map((x) => x.annual_id as string)).size;
   const gastado = s.variableReal;
@@ -173,6 +236,8 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
           <span className="font-semibold text-accent">Decírmelo ›</span>
         </Link>
       )}
+
+      <Ahorro d={d} mp={mp} month={month} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} open={sp.l} />
