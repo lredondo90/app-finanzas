@@ -1,7 +1,9 @@
 import HistoryChart from "@/components/HistoryChart";
 import Hero from "@/components/Hero";
 import { addSnapshot, deleteBank, deleteHolding, deleteSnapshot, saveBank, saveHolding, setBankCounted } from "@/app/actions";
-import { fmt, fmt0, fmtPct, netWorth } from "@/lib/finance";
+import SavingsCalculator from "@/components/SavingsCalculator";
+import { fmt, fmt0, fmtPct, netWorth, todayMadrid } from "@/lib/finance";
+import { fundsMonthly, planSavingsPattern } from "@/lib/projection";
 import { loadYear } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +20,15 @@ export default async function PatrimonioPage() {
   const prev = history.length >= 2 ? history[history.length - 2].total : null;
   const funds = nw.funds;
   const banks = Array.from(new Set(d.syncedAccounts.map((a) => a.bank)));
+
+  // Calculadora: el ritmo sale del plan del año que viene si ya existe (si no, del de este año) y empieza el mes que viene
+  const t = todayMadrid();
+  const next = await loadYear(d.year + 1).catch(() => null);
+  const pattern = planSavingsPattern(next && next.values.length ? next : d);
+  const from = t.month === 12 ? `${t.year + 1}-01` : `${t.year}-${String(t.month + 1).padStart(2, "0")}`;
+  // Cuentas a mano que en realidad son lo que te debe el inquilino
+  const tenant = d.banks.filter((b) => b.counted !== false && /\bTC\b|inquilino/i.test(b.name)).reduce((a, b) => a + Number(b.balance ?? 0), 0);
+  const calc = { cashMine: nw.cash - nw.joint, joint: nw.joint, tenant, funds: nw.fondos + nw.cartera, monthly: pattern.normal, toFunds: fundsMonthly(d), extra: pattern.extra, from };
 
   return (
     <div className="space-y-4">
@@ -133,6 +144,8 @@ export default async function PatrimonioPage() {
           <p className="mt-3 text-xs text-muted">Las compras del plan de Trade Republic suman participaciones solas. El precio se actualiza una vez al día; si un fondo no cotiza en bolsa (BBVA), escribe su valor liquidativo.</p>
         </div>
       </section>
+
+      <SavingsCalculator d={calc} />
 
       <div className="card">
         <h2 className="section-title mb-2">Evolución</h2>
