@@ -84,6 +84,14 @@ export default async function GastosPage({ searchParams }: { searchParams: Promi
         })}
       </div>
 
+      {!sp.c && (
+        <Link href="/cuadrar" className="card flex items-center gap-3 text-sm">
+          <span aria-hidden className="text-lg">📄</span>
+          <span className="min-w-0 flex-1"><span className="font-medium">Cuadrar Trade Republic</span><span className="block text-xs text-muted">Sube el extracto del mes y cada pago tendrá su nombre</span></span>
+          <span className="text-muted">›</span>
+        </Link>
+      )}
+
       <div className="card">
         {list.length === 0
           ? <p className="py-8 text-center text-sm text-muted">No hay movimientos en este mes.</p>
