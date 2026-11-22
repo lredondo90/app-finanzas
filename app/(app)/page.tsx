@@ -40,13 +40,16 @@ function Checklist({ d, s, month, section, moves, open }: { d: YearData; s: Summ
   const st = s.estado[section];
   const all = st.total > 0 && st.hechos === st.total;
   const word = income ? "Cobrado" : "Pagado";
+  // Ingresos puntuales del mes (intereses, bizums, ingresos sin concepto fijo…): cuentan en el ahorro, así que se ven aquí también
+  const puntuales = income ? d.oneOffIncomes.filter((i) => i.date.startsWith(`${d.year}-`) && Number(i.date.slice(5, 7)) === month).sort((a, b) => a.date.localeCompare(b.date)) : [];
+  const totalPuntuales = puntuales.reduce((a, i) => a + Number(i.amount), 0);
   return (
     <section className="card">
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="section-title">{income ? "Ingresos" : "Gastos fijos"}</h2>
         <span className={`text-sm font-semibold ${all ? "text-good" : "text-ink2"}`}>{all ? `Todo ${word.toLowerCase()}` : `${word}s ${st.hechos} de ${st.total}`}</span>
       </div>
-      <p className="mb-2 text-sm text-ink2">{all ? `${fmt0(rows.reduce((a, r) => a + r.value, 0))} en total` : `Falta por ${income ? "cobrar" : "pagar"} ${fmt0(st.pendiente)}`}</p>
+      <p className="mb-2 text-sm text-ink2">{all ? `${fmt0(rows.reduce((a, r) => a + r.value, 0) + totalPuntuales)} en total` : `Falta por ${income ? "cobrar" : "pagar"} ${fmt0(st.pendiente)}`}</p>
       {rows.length === 0 && <p className="py-4 text-center text-sm text-muted">Nada previsto este mes. <Link href="/plan" className="text-accent">Escribir mi plan ›</Link></p>}
       <ul className="divide-y divide-line/70">
         {rows.map(({ line, value, done }) => {
@@ -99,6 +102,31 @@ function Checklist({ d, s, month, section, moves, open }: { d: YearData; s: Summ
             </li>
           );
         })}
+        {puntuales.length > 0 && (
+          <li>
+            <details className="group">
+              <summary className="flex min-h-[3.25rem] cursor-pointer list-none items-center gap-3 py-2">
+                <Check done />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">Otros ingresos</div>
+                  <div className="truncate text-xs text-muted">{puntuales.length === 1 ? "1 ingreso puntual" : `${puntuales.length} ingresos puntuales`} · intereses, bizums…</div>
+                </div>
+                <div className="tnum shrink-0 font-semibold">{fmt0(totalPuntuales)}</div>
+                <span className="shrink-0 text-xs text-muted transition group-open:rotate-90" aria-hidden>›</span>
+              </summary>
+              <div className="mb-3 space-y-2 rounded-2xl bg-page p-3">
+                {puntuales.map((i) => (
+                  <div key={i.id} className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="min-w-0 truncate">{shortDate(i.date)} · {i.concept}{i.notes?.startsWith("Importado de ") ? ` · ${i.notes.slice(13)}` : ""}</span>
+                    <span className="tnum shrink-0 font-semibold">{fmt(Number(i.amount))}</span>
+                  </div>
+                ))}
+                <p className="text-xs text-muted">Si alguno es un traspaso entre tus cuentas y no un ingreso, búscalo en Movimientos y márcalo como «No contar».</p>
+                <Link href={`/gastos?m=${month}`} className="btn-ghost inline-flex min-h-[2.75rem] items-center">Ir a Movimientos</Link>
+              </div>
+            </details>
+          </li>
+        )}
       </ul>
     </section>
   );
