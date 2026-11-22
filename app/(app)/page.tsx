@@ -34,19 +34,22 @@ function Check({ done }: { done: boolean }) {
 }
 
 /** Ingresos o gastos fijos del mes: una línea por concepto con ✓ o «Pendiente». Al tocarla se ve el movimiento del banco y se puede cambiar */
-function Checklist({ d, s, month, section, moves, open }: { d: YearData; s: Summary; month: number; section: "ingreso" | "fijo"; moves: Map<string, LineMove[]>; open?: string }) {
+function Checklist({ d, s, month, section, moves, open, oneOffMoves }: { d: YearData; s: Summary; month: number; section: "ingreso" | "fijo"; moves: Map<string, LineMove[]>; open?: string; oneOffMoves?: Map<string, LineMove> }) {
   const income = section === "ingreso";
   const rows = s.lineas.filter((l) => l.line.section === section && (l.value !== 0 || l.done));
   const st = s.estado[section];
   const all = st.total > 0 && st.hechos === st.total;
   const word = income ? "Cobrado" : "Pagado";
+  // Ingresos puntuales del mes (intereses, bizums, ingresos sin concepto fijo…): cuentan en el ahorro, así que se ven aquí también
+  const puntuales = income ? d.oneOffIncomes.filter((i) => i.date.startsWith(`${d.year}-`) && Number(i.date.slice(5, 7)) === month).sort((a, b) => a.date.localeCompare(b.date)) : [];
+  const totalPuntuales = puntuales.reduce((a, i) => a + Number(i.amount), 0);
   return (
     <section className="card">
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="section-title">{income ? "Ingresos" : "Gastos fijos"}</h2>
         <span className={`text-sm font-semibold ${all ? "text-good" : "text-ink2"}`}>{all ? `Todo ${word.toLowerCase()}` : `${word}s ${st.hechos} de ${st.total}`}</span>
       </div>
-      <p className="mb-2 text-sm text-ink2">{all ? `${fmt0(rows.reduce((a, r) => a + r.value, 0))} en total` : `Falta por ${income ? "cobrar" : "pagar"} ${fmt0(st.pendiente)}`}</p>
+      <p className="mb-2 text-sm text-ink2">{all ? `${fmt0(rows.reduce((a, r) => a + r.value, 0) + totalPuntuales)} en total` : `Falta por ${income ? "cobrar" : "pagar"} ${fmt0(st.pendiente)}`}</p>
       {rows.length === 0 && <p className="py-4 text-center text-sm text-muted">Nada previsto este mes. <Link href="/plan" className="text-accent">Escribir mi plan ›</Link></p>}
       <ul className="divide-y divide-line/70">
         {rows.map(({ line, value, done }) => {
@@ -99,6 +102,37 @@ function Checklist({ d, s, month, section, moves, open }: { d: YearData; s: Summ
             </li>
           );
         })}
+        {puntuales.length > 0 && (
+          <li>
+            <details className="group">
+              <summary className="flex min-h-[3.25rem] cursor-pointer list-none items-center gap-3 py-2">
+                <Check done />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">Otros ingresos</div>
+                  <div className="truncate text-xs text-muted">{puntuales.length === 1 ? "1 ingreso puntual" : `${puntuales.length} ingresos puntuales`} · intereses, bizums…</div>
+                </div>
+                <div className="tnum shrink-0 font-semibold">{fmt0(totalPuntuales)}</div>
+                <span className="shrink-0 text-xs text-muted transition group-open:rotate-90" aria-hidden>›</span>
+              </summary>
+              <div className="mb-3 space-y-2 rounded-2xl bg-page p-3">
+                <p className="text-xs text-muted">Si alguno es un traspaso entre tus cuentas o no es un ingreso de verdad, cámbialo aquí: se guarda al elegir.</p>
+                {puntuales.map((i) => {
+                  const m = oneOffMoves?.get(i.id);
+                  return (
+                    <div key={i.id} className="border-t border-line/60 pt-2 first:border-0">
+                      <div className="flex items-baseline justify-between gap-2 text-sm">
+                        <span className="min-w-0 truncate">{shortDate(i.date)} · {i.concept}{i.notes?.startsWith("Importado de ") ? ` · ${i.notes.slice(13)}` : ""}</span>
+                        <span className="tnum shrink-0 font-semibold">{fmt(Number(i.amount))}</span>
+                      </div>
+                      {m ? <MoveSelect m={m} categories={d.categories} lines={d.lines} annuals={d.annuals} className="mt-1" />
+                        : <p className="mt-1 text-xs text-muted">Apuntado a mano. <Link href={`/ingresos?m=${month}`} className="text-accent">Cambiarlo ›</Link></p>}
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          </li>
+        )}
       </ul>
     </section>
   );
@@ -200,6 +234,12 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
     moves.set(line.id, [...(moves.get(line.id) ?? []), { ...m, amount: Number(m.amount) }]);
   }
 
+  // Movimientos del banco de los ingresos puntuales del mes, para poder cambiarlos desde aquí
+  const oneOffIds = d.oneOffIncomes.filter((i) => i.date.startsWith(`${d.year}-`) && Number(i.date.slice(5, 7)) === month).map((i) => i.id);
+  const { data: oneOffRows } = oneOffIds.length
+    ? await supabase.from("bank_movements").select("id, bank, date, description, amount, action, category_id, line_id, one_off_income_id").in("one_off_income_id", oneOffIds)
+    : { data: [] as (LineMove & { one_off_income_id: string })[] };
+  const oneOffMoves = new Map<string, LineMove>((oneOffRows ?? []).map((m) => [m.one_off_income_id as string, { ...m, amount: Number(m.amount) }]));
   const mp = monthPlan(d, month);
   const s = mp.s;
   const debe = (tenant ?? []).reduce((a, t) => a + Number(t.amount), 0);
@@ -240,7 +280,7 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
       <Ahorro d={d} mp={mp} month={month} />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} open={sp.l} />
+        <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} open={sp.l} oneOffMoves={oneOffMoves} />
         <Checklist d={d} s={s} month={month} section="fijo" moves={moves} open={sp.l} />
       </div>
 
