@@ -143,7 +143,7 @@ const fundName = (desc: string) =>
   desc.replace(/^savings plan execution\s+[A-Z]{2}[A-Z0-9]{9}\d\s*/i, "").replace(/,\s*quantity:.*$/i, "").trim() || desc;
 
 /** Resultado del mes en ahorro: ingresos − gastos fijos − gasto libre (la misma cuenta que en Presupuesto) */
-function Ahorro({ d, mp, month, fundMoves }: { d: YearData; mp: MonthPlan; month: number; fundMoves: LineMove[] }) {
+function Ahorro({ d, mp, month, fundMoves, showFunds }: { d: YearData; mp: MonthPlan; month: number; fundMoves: LineMove[]; showFunds: boolean }) {
   const { s, plan, libre, ahorroPrevisto, desviacion } = mp;
   // Fondos: lo metido en fondos este mes (movimientos del banco marcados como inversión); en meses futuros, tus planes de ahorro
   const fondos = s.periodo === "futuro" ? s.planes
@@ -178,17 +178,18 @@ function Ahorro({ d, mp, month, fundMoves }: { d: YearData; mp: MonthPlan; month
           <div className="text-[11px] text-muted">Se queda en tus cuentas</div>
         </div>
         <div className="rounded-2xl bg-page px-3 py-2">
-          <div className="text-xs text-muted">En fondos</div>
+          <div className="flex items-baseline justify-between gap-2 text-xs text-muted">
+            <span>En fondos</span>
+            {fundMoves.length > 0 && (
+              <Link href={showFunds ? `/?m=${month}` : `/?m=${month}&fondos=1#fondos`} scroll={false} className="font-semibold text-accent">{showFunds ? "Ocultar" : "Ver"}</Link>
+            )}
+          </div>
           <div className={`tnum text-lg font-semibold ${fondos < -0.5 ? "text-bad" : ""}`}>{signo(fondos)}{fmt0(Math.abs(fondos))}</div>
           <div className="text-[11px] text-muted">{s.periodo === "futuro" ? "Según tus planes de ahorro" : actual ? "Metido en fondos hasta hoy" : "Metido en fondos"}</div>
         </div>
       </div>
-      {fundMoves.length > 0 && (
-        <details className="group mt-2">
-          <summary className="flex min-h-[2.75rem] cursor-pointer list-none items-center justify-between gap-2 rounded-2xl border border-line px-3 text-sm font-semibold text-accent">
-            <span>Ver a qué fondos ha ido ({fundMoves.length} {fundMoves.length === 1 ? "movimiento" : "movimientos"})</span>
-            <span className="text-xs transition group-open:rotate-90" aria-hidden>›</span>
-          </summary>
+      {showFunds && fundMoves.length > 0 && (
+        <div id="fondos" className="scroll-mt-4">
           <div className="mt-2 space-y-2 rounded-2xl bg-page p-3">
             <p className="text-xs text-muted">Si alguno no es una compra de fondos, cámbialo aquí: se guarda al elegir.</p>
             {fundMoves.map((m) => (
@@ -201,7 +202,7 @@ function Ahorro({ d, mp, month, fundMoves }: { d: YearData; mp: MonthPlan; month
               </div>
             ))}
           </div>
-        </details>
+        </div>
       )}
       <ul className="mt-3 space-y-1 text-sm">
         {rows.map((r) => (
@@ -223,7 +224,7 @@ function Ahorro({ d, mp, month, fundMoves }: { d: YearData; mp: MonthPlan; month
   );
 }
 
-export default async function EsteMes({ searchParams }: { searchParams: Promise<{ m?: string; l?: string }> }) {
+export default async function EsteMes({ searchParams }: { searchParams: Promise<{ m?: string; l?: string; fondos?: string }> }) {
   const sp = await searchParams;
   const d = await loadYear();
   const first = firstMonth(d);
@@ -307,7 +308,7 @@ export default async function EsteMes({ searchParams }: { searchParams: Promise<
         </Link>
       )}
 
-      <Ahorro d={d} mp={mp} month={month} fundMoves={fundMoves} />
+      <Ahorro d={d} mp={mp} month={month} fundMoves={fundMoves} showFunds={sp.fondos === "1"} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Checklist d={d} s={s} month={month} section="ingreso" moves={moves} open={sp.l} oneOffMoves={oneOffMoves} />
